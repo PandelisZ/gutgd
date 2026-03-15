@@ -1,0 +1,7 @@
+{
+  "companyName": "gut",
+  "fileDescription": "gut graphical debugger",
+  "productName": "gutgd",
+  "legalCopyright": "Internal testing tool",
+  "comments": "Desktop harness for the gut Go rewrite"
+}

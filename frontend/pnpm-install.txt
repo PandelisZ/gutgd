@@ -1,0 +1,32 @@
+Progress: resolved 1, reused 0, downloaded 0, added 0
+Progress: resolved 25, reused 7, downloaded 3, added 0
+Progress: resolved 96, reused 15, downloaded 13, added 0
+Progress: resolved 122, reused 17, downloaded 26, added 0
+Progress: resolved 143, reused 26, downloaded 51, added 0
+Packages: +116
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+Progress: resolved 147, reused 30, downloaded 75, added 1
+Progress: resolved 147, reused 30, downloaded 85, added 21
+Progress: resolved 147, reused 30, downloaded 90, added 28
+Progress: resolved 147, reused 30, downloaded 90, added 47
+Progress: resolved 147, reused 30, downloaded 90, added 63
+Progress: resolved 147, reused 30, downloaded 90, added 93
+Progress: resolved 147, reused 30, downloaded 90, added 100
+Progress: resolved 147, reused 30, downloaded 90, added 108
+Progress: resolved 147, reused 30, downloaded 90, added 111
+Progress: resolved 147, reused 30, downloaded 90, added 115
+Progress: resolved 147, reused 30, downloaded 91, added 115
+Progress: resolved 147, reused 30, downloaded 91, added 116
+Progress: resolved 147, reused 30, downloaded 91, added 116, done
+
+dependencies:
++ @fluentui/react-components 9.73.3
++ react 19.2.4
++ react-dom 19.2.4
++ react-router-dom 7.13.1
+
+devDependencies:
++ @vitejs/plugin-react 6.0.1
++ vite 8.0.0
+
+Done in 1m 28.5s using pnpm v10.32.1

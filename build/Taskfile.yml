@@ -1,0 +1,18 @@
+version: '3'
+
+tasks:
+  install:frontend:deps:
+    cmds:
+      - powershell -NoProfile -Command "Set-Location '.\frontend'; pnpm install"
+
+  dev:frontend:
+    cmds:
+      - powershell -NoProfile -Command "Set-Location '.\frontend'; pnpm dev"
+
+  build:frontend:
+    cmds:
+      - powershell -NoProfile -Command "Set-Location '.\frontend'; pnpm build"
+
+  generate:bindings:
+    cmds:
+      - wails3 generate bindings

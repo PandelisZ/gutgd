@@ -1,0 +1,29 @@
+version: '3'
+
+includes:
+  common: ./build/Taskfile.yml
+  windows: ./build/windows/Taskfile.yml
+
+vars:
+  APP_NAME: "gutgd"
+  BIN_DIR: "build/bin"
+
+tasks:
+  build:
+    cmds:
+      - task: common:install:frontend:deps
+      - task: common:generate:bindings
+      - task: common:build:frontend
+      - task: windows:build
+
+  run:
+    cmds:
+      - task: windows:run
+
+  dev:
+    cmds:
+      - wails3 dev -config ./build/config.yml
+
+  bindings:
+    cmds:
+      - wails3 generate bindings

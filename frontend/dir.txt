@@ -1,0 +1,16 @@
+ Volume in drive C has no label.
+ Volume Serial Number is D853-1B7E
+
+ Directory of C:\Users\pz\w\nut\gutgd\frontend
+
+03/15/2026  08:46 PM    <DIR>          .
+03/15/2026  08:13 PM    <DIR>          ..
+03/15/2026  08:44 PM    <DIR>          bindings
+03/15/2026  08:46 PM                 0 dir.txt
+03/15/2026  08:43 PM    <DIR>          dist
+03/15/2026  08:43 PM               288 index.html
+03/15/2026  08:44 PM               487 package.json
+03/15/2026  08:43 PM    <DIR>          src
+03/15/2026  08:43 PM               281 vite.config.js
+               4 File(s)          1,056 bytes
+               5 Dir(s)  1,158,956,531,712 bytes free

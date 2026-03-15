@@ -1,0 +1,346 @@
+:root {
+  color-scheme: dark;
+  background: #171311;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at 0% 100%, rgba(255, 156, 79, 0.14), transparent 26%),
+    radial-gradient(circle at 100% 100%, rgba(69, 163, 255, 0.12), transparent 28%),
+    linear-gradient(180deg, #1c1714, #120f0d 72%);
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+.gutgd-pageHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 1.25rem;
+  align-items: flex-start;
+  padding: 0.15rem 0 1rem;
+}
+
+.gutgd-pageHeader h1 {
+  margin: 0;
+  font-size: 2.1rem;
+  line-height: 1.12;
+}
+
+.gutgd-pageKicker {
+  margin-bottom: 0.45rem;
+  color: #aea49d;
+}
+
+.gutgd-pageHeaderBody {
+  margin-top: 0.7rem;
+  max-width: 880px;
+  color: #d0c7c1;
+  line-height: 1.45;
+}
+
+.gutgd-headerActions,
+.gutgd-inlineActions,
+.gutgd-rowActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+}
+
+.gutgd-statusBar {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.gutgd-list {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.gutgd-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.gutgd-card,
+.gutgd-rowCard {
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, rgba(45, 37, 34, 0.94), rgba(37, 30, 28, 0.94));
+  color: #f5f5f5;
+}
+
+.gutgd-card {
+  padding: 1.15rem 1.2rem;
+}
+
+.gutgd-cardHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+}
+
+.gutgd-cardHeader h2,
+.gutgd-cardHeader h3 {
+  margin: 0;
+}
+
+.gutgd-cardHeader p {
+  margin: 0.25rem 0 0;
+  color: #cfc6c0;
+  line-height: 1.4;
+}
+
+.gutgd-heroPrimary {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  min-height: 128px;
+}
+
+.gutgd-heroGlyph {
+  display: grid;
+  place-items: center;
+  width: 96px;
+  height: 96px;
+  border-radius: 24px;
+  border: 1px solid rgba(68, 169, 255, 0.4);
+  background: linear-gradient(180deg, rgba(68, 169, 255, 0.12), rgba(68, 169, 255, 0.02));
+  color: #44a9ff;
+  font-size: 2.75rem;
+  font-weight: 700;
+}
+
+.gutgd-heroStats {
+  display: grid;
+  gap: 1rem;
+}
+
+.gutgd-statCard {
+  padding: 1rem 1.1rem;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, rgba(45, 37, 34, 0.94), rgba(37, 30, 28, 0.94));
+}
+
+.gutgd-statLabel {
+  display: block;
+  color: #aca29a;
+  margin-bottom: 0.4rem;
+}
+
+.gutgd-rowCard {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 1.25rem;
+  padding: 1.05rem 1.15rem;
+}
+
+.gutgd-rowLead {
+  display: flex;
+  gap: 0.95rem;
+  align-items: flex-start;
+}
+
+.gutgd-rowLeadGlyph {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  border: 1px solid rgba(68, 169, 255, 0.24);
+  background: rgba(68, 169, 255, 0.12);
+  color: #44a9ff;
+  font-weight: 700;
+}
+
+.gutgd-rowLead p {
+  margin: 0.25rem 0 0;
+  color: #cfc6c0;
+  line-height: 1.4;
+}
+
+.gutgd-rowBody {
+  display: grid;
+  gap: 0.9rem;
+  min-width: 0;
+}
+
+.gutgd-grid2,
+.gutgd-grid4 {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.gutgd-grid2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.gutgd-grid4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.gutgd-summaryGrid,
+.gutgd-featureList,
+.gutgd-windowList {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.gutgd-summaryRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.95rem 1rem;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.gutgd-summaryRowLabel {
+  color: #d0c7c1;
+}
+
+.gutgd-featureItem {
+  padding: 0.95rem 1rem;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.gutgd-featureItem header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.4rem;
+}
+
+.gutgd-featureItem p {
+  margin: 0;
+  color: #cfc6c0;
+}
+
+.gutgd-windowItem {
+  display: grid;
+  gap: 0.35rem;
+  width: 100%;
+  padding: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.gutgd-windowItem:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(68, 169, 255, 0.45);
+}
+
+.gutgd-output {
+  min-height: 210px;
+  max-height: 420px;
+  overflow: auto;
+  padding: 1rem;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(11, 10, 10, 0.28);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: Consolas, "SFMono-Regular", monospace;
+  font-size: 0.92rem;
+}
+
+.gutgd-nativeSelect {
+  width: 100%;
+  height: 44px;
+  padding: 0 0.8rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: inherit;
+}
+
+.gutgd-colorSwatch {
+  display: grid;
+  place-items: center;
+  min-height: 112px;
+  padding: 1rem;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.03);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.gutgd-reasonList {
+  margin: 0;
+  padding-left: 1.15rem;
+  color: #ffcf8b;
+}
+
+.gutgd-empty {
+  color: #aea49d;
+}
+
+.gutgd-footnote code,
+.gutgd-rowLead code,
+.gutgd-card code {
+  color: #7ccaff;
+}
+
+@media (max-width: 1320px) {
+  .gutgd-hero,
+  .gutgd-rowCard {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 1080px) {
+  .gutgd-frame {
+    grid-template-columns: 1fr;
+  }
+
+  .gutgd-sidebar {
+    border-right: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+}
+
+@media (max-width: 840px) {
+  .gutgd-content {
+    padding: 0.5rem 1rem 1rem;
+  }
+
+  .gutgd-pageHeader,
+  .gutgd-topbar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .gutgd-grid2,
+  .gutgd-grid4 {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "gutgd-frontend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite --host 127.0.0.1 --port 9245 --strictPort",
+    "preview": "vite preview --host 127.0.0.1 --port 4173 --strictPort"
+  },
+  "dependencies": {
+    "@fluentui/react-components": "9.73.3",
+    "@fluentui/react-nav": "^9.3.20",
+    "@wailsio/runtime": "3.0.0-alpha.79",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "react-router-dom": "7.13.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "6.0.1",
+    "vite": "8.0.0"
+  }
+}

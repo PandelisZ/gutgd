@@ -1,0 +1,3 @@
+C:\Program Files\WinGet\Links\pnpm.exe
+C:\Users\pz\AppData\Local\pnpm\pnpm
+C:\Users\pz\AppData\Local\pnpm\pnpm.CMD
