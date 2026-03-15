@@ -5,6 +5,7 @@ import AppLayout from '../components/AppLayout'
 import { navItems } from './routes'
 import { useBridgeMode } from '../lib/wails'
 import ClipboardView from '../views/ClipboardView'
+import AgentView from '../views/AgentView'
 import DiagnosticsView from '../views/DiagnosticsView'
 import KeyboardView from '../views/KeyboardView'
 import MouseView from '../views/MouseView'
@@ -28,6 +29,7 @@ function RoutedApp() {
         <Route path="/windows" element={<WindowsView />} />
         <Route path="/search" element={<SearchView />} />
         <Route path="/clipboard" element={<ClipboardView />} />
+        <Route path="/agent" element={<AgentView />} />
       </Routes>
     </AppLayout>
   )

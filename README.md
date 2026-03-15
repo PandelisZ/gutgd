@@ -31,7 +31,7 @@ Windows PowerShell:
 
 ```powershell
 cd .\gutgd
-wails3 dev -config .\build\config.yml
+task dev
 ```
 
 ## Frontend details
@@ -40,6 +40,7 @@ wails3 dev -config .\build\config.yml
 - The frontend waits for the Wails bridge before calling backend methods, so startup does not fail with `window.wails.Call is unavailable`.
 - Fluent UI React v9 is provided by `@fluentui/react-components`.
 - Frontend package management uses `pnpm`.
+- On Windows, use `task dev` so `wails3 dev` starts with the MSYS2 MinGW CGO environment required by the native `gut` backend.
 
 ## Generate frontend bindings
 
@@ -66,6 +67,10 @@ pnpm build
 
 cd ..\
 go test .\...
+$env:PATH = "C:\msys64\mingw64\bin;$env:PATH"
+$env:CGO_ENABLED = "1"
+$env:CC = "C:\msys64\mingw64\bin\gcc.exe"
+$env:CXX = "C:\msys64\mingw64\bin\g++.exe"
 go build -o .\build\bin\gutgd.exe .
 ```
 
@@ -84,5 +89,6 @@ go build -o .\build\bin\gutgd.exe .
 
 - Captures are saved under `.\.artifacts\` relative to the app working directory.
 - The UI drives live desktop actions. Mouse, keyboard, clipboard, screen, and window operations affect the real host session.
+- Native `gut` capabilities on Windows require a CGO build. This project expects the MSYS2 mingw64 toolchain at `C:\msys64\mingw64\bin` and builds `gutgd.exe` with `CGO_ENABLED=1`.
 - This project pins Wails to `v3.0.0-alpha.74` in `go.mod`.
 - The repo-local `gut` module is linked through `replace gut => ../gut`.

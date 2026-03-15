@@ -42,6 +42,20 @@ function mockResult(method) {
       return { text: 'Mock clipboard text' }
     case 'ClipboardHasText':
       return { has_text: true }
+    case 'GetAgentSettings':
+      return { api_key: '', model: 'gpt-5.4' }
+    case 'SaveAgentSettings':
+      return { api_key: '', model: 'gpt-5.4' }
+    case 'ChatWithAgent':
+      return {
+        message: {
+          role: 'assistant',
+          content: 'Browser preview mode cannot call the OpenAI-backed desktop agent. Launch gutgd through Wails to test tool calling.'
+        },
+        tool_events: [],
+        response_id: 'preview-response',
+        usage: { input_tokens: 0, output_tokens: 0, reasoning_tokens: 0, total_tokens: 0 }
+      }
     case 'FindColor':
     case 'WaitForColor':
       return { x: 120, y: 88 }

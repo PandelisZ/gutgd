@@ -1,101 +1,116 @@
-import { Avatar, Badge, Button, Input, Text, makeStyles, mergeClasses, tokens } from '@fluentui/react-components'
-import { Nav, NavCategory, NavCategoryItem, NavItem, NavSubItemGroup } from '@fluentui/react-nav'
+import { Avatar, Badge, Input, Text, makeStyles, mergeClasses, tokens } from '@fluentui/react-components'
+import { Nav, NavItem } from '@fluentui/react-nav'
 import { useNavigate, useLocation } from 'react-router-dom'
 
 import { navItems } from '../app/routes'
 
 const useStyles = makeStyles({
   frame: {
-    minHeight: '100vh',
-    padding: '10px'
+    height: '100vh',
+    width: '100vw',
+    overflow: 'hidden'
   },
   shell: {
     display: 'grid',
-    gridTemplateColumns: '308px minmax(0, 1fr)',
-    minHeight: 'calc(100vh - 20px)',
+    gridTemplateColumns: '256px minmax(0, 1fr)',
+    height: '100vh',
     overflow: 'hidden',
-    borderRadius: '14px',
-    border: `1px solid ${tokens.colorNeutralStroke2}`,
+    minHeight: 0,
     background: `linear-gradient(180deg, ${tokens.colorNeutralBackground1} 0%, ${tokens.colorNeutralBackground1Hover} 100%)`,
-    boxShadow: tokens.shadow64
+    boxShadow: tokens.shadow4
   },
   rail: {
     display: 'flex',
     flexDirection: 'column',
     gap: '12px',
-    padding: '14px 12px 16px',
+    padding: '14px 10px',
+    minHeight: 0,
+    overflow: 'auto',
     borderRight: `1px solid ${tokens.colorNeutralStroke2}`,
     background: `linear-gradient(180deg, ${tokens.colorNeutralBackground2} 0%, ${tokens.colorNeutralBackground3} 100%)`
   },
-  railTop: {
+  railHeader: {
     display: 'flex',
-    alignItems: 'center',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
     gap: '10px',
-    minHeight: '34px'
+    padding: '4px 10px 0'
   },
   profile: {
     display: 'flex',
-    alignItems: 'center',
-    gap: '14px',
-    padding: '8px 4px 12px'
+    alignItems: 'flex-start',
+    gap: '12px',
+    width: '100%'
   },
   profileText: {
     display: 'grid',
-    gap: '2px'
+    gap: '4px'
+  },
+  appEyebrow: {
+    color: tokens.colorNeutralForeground3,
+    textTransform: 'uppercase',
+    letterSpacing: '0.08em'
   },
   navSurface: {
     display: 'grid',
-    gap: '4px',
+    gap: '6px',
     flex: 1,
     minHeight: 0
   },
+  navLabel: {
+    padding: '0 10px',
+    color: tokens.colorNeutralForeground3
+  },
   navRoot: {
-    background: 'transparent'
+    background: 'transparent',
+    minWidth: 0
   },
-  navItemHeader: {
-    borderRadius: '10px'
-  },
-  currentItem: {
-    padding: '14px 12px',
-    borderRadius: '16px',
-    border: `1px solid ${tokens.colorNeutralStroke2}`,
-    background: `linear-gradient(180deg, ${tokens.colorNeutralBackground3} 0%, ${tokens.colorNeutralBackground2} 100%)`
-  },
-  currentTitle: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px',
-    marginBottom: '4px'
-  },
-  currentGlyph: {
+  navItem: {
     display: 'grid',
-    placeItems: 'center',
-    width: '28px',
-    height: '28px',
-    borderRadius: '10px',
-    background: tokens.colorBrandBackground2,
-    color: tokens.colorBrandForeground1
+    gridTemplateColumns: '20px minmax(0, 1fr)',
+    gap: '10px',
+    alignItems: 'center',
+    width: '100%',
+    minWidth: 0,
+    padding: '2px 0'
+  },
+  navGlyph: {
+    color: tokens.colorBrandForeground1,
+    textAlign: 'center'
+  },
+  navCopy: {
+    minWidth: 0
+  },
+  navTitle: {
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    lineHeight: '1.2'
   },
   footnote: {
-    padding: '12px 8px 0',
+    padding: '10px 12px',
+    borderRadius: '12px',
+    border: `1px solid ${tokens.colorNeutralStroke2}`,
+    background: tokens.colorNeutralBackground1,
     color: tokens.colorNeutralForeground3,
     lineHeight: '1.45'
   },
   content: {
     minWidth: 0,
+    minHeight: 0,
     display: 'flex',
     flexDirection: 'column',
-    padding: '10px 28px 24px'
+    padding: '16px 20px 20px'
   },
   topbar: {
     display: 'flex',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
     gap: '16px',
     alignItems: 'center',
-    padding: '2px 0 14px'
+    padding: '0 0 18px'
   },
   searchWrap: {
-    width: 'min(560px, 100%)'
+    width: 'min(420px, 100%)'
   },
   searchInput: {
     borderRadius: '999px'
@@ -107,7 +122,10 @@ const useStyles = makeStyles({
     flexWrap: 'wrap'
   },
   main: {
-    minWidth: 0
+    minWidth: 0,
+    minHeight: 0,
+    overflow: 'auto',
+    paddingRight: '6px'
   },
   responsiveShell: {
     '@media (max-width: 1100px)': {
@@ -137,22 +155,20 @@ export default function AppLayout({ bridgeMode, currentItem, children }) {
     <div className={styles.frame}>
       <div className={mergeClasses(styles.shell, styles.responsiveShell)}>
         <aside className={mergeClasses(styles.rail, styles.responsiveRail)}>
-          <div className={styles.railTop}>
-            <Button appearance="subtle" shape="circular" aria-label="Back">
-              ←
-            </Button>
-            <Text weight="semibold">gutgd</Text>
-          </div>
-
-          <div className={styles.profile}>
-            <Avatar name="gut graphical debugger" size={56} color="brand" />
-            <div className={styles.profileText}>
-              <Text as="div" weight="semibold" size={400}>gut graphical debugger</Text>
-              <Text as="div" size={200} appearance="subtle">desktop verification harness</Text>
+          <div className={styles.railHeader}>
+            <Text size={100} className={styles.appEyebrow}>Navigation</Text>
+            <div className={styles.profile}>
+              <Avatar name="gut graphical debugger" size={48} color="brand" />
+              <div className={styles.profileText}>
+                <Text as="div" weight="semibold" size={400}>gutgd</Text>
+                <Text as="div" size={300}>gut graphical debugger</Text>
+                <Text as="div" size={200} appearance="subtle">Desktop verification harness</Text>
+              </div>
             </div>
           </div>
 
           <div className={styles.navSurface}>
+            <Text size={200} weight="semibold" className={styles.navLabel}>Main areas</Text>
             <Nav
               aria-label="gut feature sections"
               className={styles.navRoot}
@@ -163,30 +179,17 @@ export default function AppLayout({ bridgeMode, currentItem, children }) {
                 }
               }}
             >
-              <NavCategory value="features">
-                <NavCategoryItem>
-                  <Button appearance="transparent">Features</Button>
-                </NavCategoryItem>
-                <NavSubItemGroup>
-                  {navItems.map((item) => (
-                    <NavItem key={item.key} value={item.path}>
-                      <div className={styles.navItemHeader}>
-                        <span aria-hidden="true">{item.glyph}</span>
-                        <span>{item.title}</span>
-                      </div>
-                    </NavItem>
-                  ))}
-                </NavSubItemGroup>
-              </NavCategory>
+              {navItems.map((item) => (
+                <NavItem key={item.key} value={item.path}>
+                  <div className={styles.navItem}>
+                    <span className={styles.navGlyph} aria-hidden="true">{item.glyph}</span>
+                    <span className={styles.navCopy}>
+                      <Text className={styles.navTitle}>{item.title}</Text>
+                    </span>
+                  </div>
+                </NavItem>
+              ))}
             </Nav>
-
-            <div className={styles.currentItem}>
-              <div className={styles.currentTitle}>
-                <span className={styles.currentGlyph} aria-hidden="true">{currentItem?.glyph || '⌘'}</span>
-                <Text weight="semibold">{currentItem?.title || 'Diagnostics'}</Text>
-              </div>
-              <Text size={200} appearance="subtle">{currentItem?.description}</Text>
-            </div>
           </div>
 
           <div className={styles.footnote}>

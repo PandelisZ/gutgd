@@ -51,6 +51,16 @@ export function CaptureScreen(req) {
 }
 
 /**
+ * @param {$models.AgentChatRequest} req
+ * @returns {$CancellablePromise<$models.AgentChatResponse>}
+ */
+export function ChatWithAgent(req) {
+    return $Call.ByID(3875425523, req).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType2($result);
+    }));
+}
+
+/**
  * @param {$models.MouseButtonRequest} req
  * @returns {$CancellablePromise<$models.ActionResult>}
  */
@@ -84,7 +94,7 @@ export function ClipboardCopy(req) {
  */
 export function ClipboardHasText() {
     return $Call.ByID(3819920489).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType2($result);
+        return $$createType3($result);
     }));
 }
 
@@ -93,7 +103,7 @@ export function ClipboardHasText() {
  */
 export function ClipboardPaste() {
     return $Call.ByID(1770450861).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType3($result);
+        return $$createType4($result);
     }));
 }
 
@@ -103,7 +113,7 @@ export function ClipboardPaste() {
  */
 export function ColorAt(req) {
     return $Call.ByID(4272332838, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType4($result);
+        return $$createType5($result);
     }));
 }
 
@@ -133,7 +143,7 @@ export function DragMouse(req) {
  */
 export function FindColor(req) {
     return $Call.ByID(609851502, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType5($result);
+        return $$createType6($result);
     }));
 }
 
@@ -143,7 +153,7 @@ export function FindColor(req) {
  */
 export function FindWindowByTitle(req) {
     return $Call.ByID(1623829132, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType6($result);
+        return $$createType7($result);
     }));
 }
 
@@ -162,7 +172,16 @@ export function FocusWindow(req) {
  */
 export function GetActiveWindow() {
     return $Call.ByID(2909843870).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType6($result);
+        return $$createType7($result);
+    }));
+}
+
+/**
+ * @returns {$CancellablePromise<$models.AgentSettings>}
+ */
+export function GetAgentSettings() {
+    return $Call.ByID(2406893348).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType8($result);
     }));
 }
 
@@ -172,7 +191,7 @@ export function GetActiveWindow() {
  */
 export function GetDiagnostics(mutable) {
     return $Call.ByID(4177681436, mutable).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType7($result);
+        return $$createType9($result);
     }));
 }
 
@@ -181,7 +200,7 @@ export function GetDiagnostics(mutable) {
  */
 export function GetMousePosition() {
     return $Call.ByID(3277626448).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType5($result);
+        return $$createType6($result);
     }));
 }
 
@@ -190,7 +209,7 @@ export function GetMousePosition() {
  */
 export function GetScreenSize() {
     return $Call.ByID(2197467173).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType8($result);
+        return $$createType10($result);
     }));
 }
 
@@ -209,7 +228,7 @@ export function HighlightRegion(req) {
  */
 export function ListWindows() {
     return $Call.ByID(573994497).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType9($result);
+        return $$createType11($result);
     }));
 }
 
@@ -284,6 +303,16 @@ export function RestoreWindow(req) {
 }
 
 /**
+ * @param {$models.AgentSettings} settings
+ * @returns {$CancellablePromise<$models.AgentSettings>}
+ */
+export function SaveAgentSettings(settings) {
+    return $Call.ByID(2767597799, settings).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType8($result);
+    }));
+}
+
+/**
  * @param {$models.MouseScrollRequest} req
  * @returns {$CancellablePromise<$models.ActionResult>}
  */
@@ -329,7 +358,7 @@ export function TypeText(req) {
  */
 export function WaitForColor(req) {
     return $Call.ByID(1048117295, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType5($result);
+        return $$createType6($result);
     }));
 }
 
@@ -339,18 +368,20 @@ export function WaitForColor(req) {
  */
 export function WaitForWindowByTitle(req) {
     return $Call.ByID(1312114077, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType6($result);
+        return $$createType7($result);
     }));
 }
 
 // Private type creation functions
 const $$createType0 = $models.ActionResult.createFrom;
 const $$createType1 = $models.CaptureResult.createFrom;
-const $$createType2 = $models.ClipboardState.createFrom;
-const $$createType3 = $models.ClipboardPasteResult.createFrom;
-const $$createType4 = $models.ColorPointResult.createFrom;
-const $$createType5 = $models.Point.createFrom;
-const $$createType6 = $models.WindowSummary.createFrom;
-const $$createType7 = $models.DiagnosticsResponse.createFrom;
-const $$createType8 = $models.ScreenSizeResult.createFrom;
-const $$createType9 = $Create.Array($$createType6);
+const $$createType2 = $models.AgentChatResponse.createFrom;
+const $$createType3 = $models.ClipboardState.createFrom;
+const $$createType4 = $models.ClipboardPasteResult.createFrom;
+const $$createType5 = $models.ColorPointResult.createFrom;
+const $$createType6 = $models.Point.createFrom;
+const $$createType7 = $models.WindowSummary.createFrom;
+const $$createType8 = $models.AgentSettings.createFrom;
+const $$createType9 = $models.DiagnosticsResponse.createFrom;
+const $$createType10 = $models.ScreenSizeResult.createFrom;
+const $$createType11 = $Create.Array($$createType7);

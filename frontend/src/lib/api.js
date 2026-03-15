@@ -2,6 +2,9 @@ import * as Service from '../../bindings/gutgd/backend/service.js'
 import { callWithRuntime } from './wails'
 
 export const api = {
+  getAgentSettings: () => callWithRuntime('GetAgentSettings', () => Service.GetAgentSettings()),
+  saveAgentSettings: (payload) => callWithRuntime('SaveAgentSettings', () => Service.SaveAgentSettings(payload)),
+  chatWithAgent: (payload) => callWithRuntime('ChatWithAgent', () => Service.ChatWithAgent(payload)),
   getDiagnostics: (mutable) => callWithRuntime('GetDiagnostics', () => Service.GetDiagnostics(mutable)),
   typeText: (payload) => callWithRuntime('TypeText', () => Service.TypeText(payload)),
   tapKeys: (payload) => callWithRuntime('TapKeys', () => Service.TapKeys(payload)),

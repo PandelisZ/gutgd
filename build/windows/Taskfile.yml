@@ -3,8 +3,8 @@ version: '3'
 tasks:
   build:
     cmds:
-      - go build -o build/bin/gutgd.exe .
+      - cmd /c "call .\build\windows\cgo-env.cmd go build -o build\bin\gutgd.exe ."
 
   run:
     cmds:
-      - powershell -NoProfile -NonInteractive -Command "& '.\build\bin\gutgd.exe'"
+      - cmd /c "call .\build\windows\cgo-env.cmd .\build\bin\gutgd.exe"

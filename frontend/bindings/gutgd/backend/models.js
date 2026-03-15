@@ -45,6 +45,274 @@ export class ActionResult {
     }
 }
 
+export class AgentChatMessage {
+    /**
+     * Creates a new AgentChatMessage instance.
+     * @param {Partial<AgentChatMessage>} [$$source = {}] - The source object to create the AgentChatMessage.
+     */
+    constructor($$source = {}) {
+        if (!("role" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["role"] = "";
+        }
+        if (!("content" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["content"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AgentChatMessage instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {AgentChatMessage}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new AgentChatMessage(/** @type {Partial<AgentChatMessage>} */($$parsedSource));
+    }
+}
+
+export class AgentChatRequest {
+    /**
+     * Creates a new AgentChatRequest instance.
+     * @param {Partial<AgentChatRequest>} [$$source = {}] - The source object to create the AgentChatRequest.
+     */
+    constructor($$source = {}) {
+        if (!("messages" in $$source)) {
+            /**
+             * @member
+             * @type {AgentChatMessage[]}
+             */
+            this["messages"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AgentChatRequest instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {AgentChatRequest}
+     */
+    static createFrom($$source = {}) {
+        const $$createField0_0 = $$createType1;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("messages" in $$parsedSource) {
+            $$parsedSource["messages"] = $$createField0_0($$parsedSource["messages"]);
+        }
+        return new AgentChatRequest(/** @type {Partial<AgentChatRequest>} */($$parsedSource));
+    }
+}
+
+export class AgentChatResponse {
+    /**
+     * Creates a new AgentChatResponse instance.
+     * @param {Partial<AgentChatResponse>} [$$source = {}] - The source object to create the AgentChatResponse.
+     */
+    constructor($$source = {}) {
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {AgentChatMessage}
+             */
+            this["message"] = (new AgentChatMessage());
+        }
+        if (!("tool_events" in $$source)) {
+            /**
+             * @member
+             * @type {AgentToolEvent[]}
+             */
+            this["tool_events"] = [];
+        }
+        if (!("response_id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["response_id"] = "";
+        }
+        if (!("usage" in $$source)) {
+            /**
+             * @member
+             * @type {AgentUsage}
+             */
+            this["usage"] = (new AgentUsage());
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AgentChatResponse instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {AgentChatResponse}
+     */
+    static createFrom($$source = {}) {
+        const $$createField0_0 = $$createType0;
+        const $$createField1_0 = $$createType3;
+        const $$createField3_0 = $$createType4;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("message" in $$parsedSource) {
+            $$parsedSource["message"] = $$createField0_0($$parsedSource["message"]);
+        }
+        if ("tool_events" in $$parsedSource) {
+            $$parsedSource["tool_events"] = $$createField1_0($$parsedSource["tool_events"]);
+        }
+        if ("usage" in $$parsedSource) {
+            $$parsedSource["usage"] = $$createField3_0($$parsedSource["usage"]);
+        }
+        return new AgentChatResponse(/** @type {Partial<AgentChatResponse>} */($$parsedSource));
+    }
+}
+
+export class AgentSettings {
+    /**
+     * Creates a new AgentSettings instance.
+     * @param {Partial<AgentSettings>} [$$source = {}] - The source object to create the AgentSettings.
+     */
+    constructor($$source = {}) {
+        if (!("api_key" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["api_key"] = "";
+        }
+        if (!("model" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["model"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AgentSettings instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {AgentSettings}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new AgentSettings(/** @type {Partial<AgentSettings>} */($$parsedSource));
+    }
+}
+
+export class AgentToolEvent {
+    /**
+     * Creates a new AgentToolEvent instance.
+     * @param {Partial<AgentToolEvent>} [$$source = {}] - The source object to create the AgentToolEvent.
+     */
+    constructor($$source = {}) {
+        if (!("call_id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["call_id"] = "";
+        }
+        if (!("name" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["name"] = "";
+        }
+        if (!("arguments" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["arguments"] = "";
+        }
+        if (!("output" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["output"] = "";
+        }
+        if (!("error" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["error"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AgentToolEvent instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {AgentToolEvent}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new AgentToolEvent(/** @type {Partial<AgentToolEvent>} */($$parsedSource));
+    }
+}
+
+export class AgentUsage {
+    /**
+     * Creates a new AgentUsage instance.
+     * @param {Partial<AgentUsage>} [$$source = {}] - The source object to create the AgentUsage.
+     */
+    constructor($$source = {}) {
+        if (!("input_tokens" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["input_tokens"] = 0;
+        }
+        if (!("output_tokens" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["output_tokens"] = 0;
+        }
+        if (!("reasoning_tokens" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["reasoning_tokens"] = 0;
+        }
+        if (!("total_tokens" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["total_tokens"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AgentUsage instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {AgentUsage}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new AgentUsage(/** @type {Partial<AgentUsage>} */($$parsedSource));
+    }
+}
+
 export class CaptureRegionRequest {
     /**
      * Creates a new CaptureRegionRequest instance.
@@ -75,7 +343,7 @@ export class CaptureRegionRequest {
      * @returns {CaptureRegionRequest}
      */
     static createFrom($$source = {}) {
-        const $$createField1_0 = $$createType0;
+        const $$createField1_0 = $$createType5;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("region" in $$parsedSource) {
             $$parsedSource["region"] = $$createField1_0($$parsedSource["region"]);
@@ -324,8 +592,8 @@ export class ColorPointResult {
      * @returns {ColorPointResult}
      */
     static createFrom($$source = {}) {
-        const $$createField0_0 = $$createType1;
-        const $$createField1_0 = $$createType2;
+        const $$createField0_0 = $$createType6;
+        const $$createField1_0 = $$createType7;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("point" in $$parsedSource) {
             $$parsedSource["point"] = $$createField0_0($$parsedSource["point"]);
@@ -402,7 +670,7 @@ export class ColorQueryRequest {
      * @returns {ColorQueryRequest}
      */
     static createFrom($$source = {}) {
-        const $$createField4_0 = $$createType3;
+        const $$createField4_0 = $$createType8;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("region" in $$parsedSource) {
             $$parsedSource["region"] = $$createField4_0($$parsedSource["region"]);
@@ -462,8 +730,8 @@ export class DiagnosticsResponse {
      * @returns {DiagnosticsResponse}
      */
     static createFrom($$source = {}) {
-        const $$createField0_0 = $$createType4;
-        const $$createField1_0 = $$createType6;
+        const $$createField0_0 = $$createType9;
+        const $$createField1_0 = $$createType11;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("report" in $$parsedSource) {
             $$parsedSource["report"] = $$createField0_0($$parsedSource["report"]);
@@ -547,7 +815,7 @@ export class KeyboardKeysRequest {
      * @returns {KeyboardKeysRequest}
      */
     static createFrom($$source = {}) {
-        const $$createField0_0 = $$createType7;
+        const $$createField0_0 = $$createType12;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("keys" in $$parsedSource) {
             $$parsedSource["keys"] = $$createField0_0($$parsedSource["keys"]);
@@ -1174,7 +1442,7 @@ export class WindowSummary {
      * @returns {WindowSummary}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType0;
+        const $$createField2_0 = $$createType5;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("region" in $$parsedSource) {
             $$parsedSource["region"] = $$createField2_0($$parsedSource["region"]);
@@ -1184,11 +1452,16 @@ export class WindowSummary {
 }
 
 // Private type creation functions
-const $$createType0 = Region.createFrom;
-const $$createType1 = Point.createFrom;
-const $$createType2 = Color.createFrom;
-const $$createType3 = $Create.Nullable($$createType0);
-const $$createType4 = guttesting$0.EnvironmentReport.createFrom;
-const $$createType5 = FeatureStatus.createFrom;
-const $$createType6 = $Create.Array($$createType5);
-const $$createType7 = $Create.Array($Create.Any);
+const $$createType0 = AgentChatMessage.createFrom;
+const $$createType1 = $Create.Array($$createType0);
+const $$createType2 = AgentToolEvent.createFrom;
+const $$createType3 = $Create.Array($$createType2);
+const $$createType4 = AgentUsage.createFrom;
+const $$createType5 = Region.createFrom;
+const $$createType6 = Point.createFrom;
+const $$createType7 = Color.createFrom;
+const $$createType8 = $Create.Nullable($$createType5);
+const $$createType9 = guttesting$0.EnvironmentReport.createFrom;
+const $$createType10 = FeatureStatus.createFrom;
+const $$createType11 = $Create.Array($$createType10);
+const $$createType12 = $Create.Array($Create.Any);

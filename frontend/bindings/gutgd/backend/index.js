@@ -9,6 +9,12 @@ export {
 
 export {
     ActionResult,
+    AgentChatMessage,
+    AgentChatRequest,
+    AgentChatResponse,
+    AgentSettings,
+    AgentToolEvent,
+    AgentUsage,
     CaptureRegionRequest,
     CaptureRequest,
     CaptureResult,

@@ -47,5 +47,12 @@ export const navItems = [
     title: 'Clipboard',
     description: 'Copy, paste, clear, and detect text.',
     glyph: '⎘'
+  },
+  {
+    key: 'agent',
+    path: '/agent',
+    title: 'Agent',
+    description: 'Chat with a model that can call gut tools.',
+    glyph: '◈'
   }
 ]
