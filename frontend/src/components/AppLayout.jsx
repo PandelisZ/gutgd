@@ -12,7 +12,7 @@ const useStyles = makeStyles({
   },
   shell: {
     display: 'grid',
-    gridTemplateColumns: '256px minmax(0, 1fr)',
+    gridTemplateColumns: '286px minmax(0, 1fr)',
     height: '100vh',
     overflow: 'hidden',
     minHeight: 0,
@@ -22,29 +22,30 @@ const useStyles = makeStyles({
   rail: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '12px',
-    padding: '14px 10px',
+    gap: '14px',
+    padding: '20px 14px 16px',
     minHeight: 0,
     overflow: 'auto',
     borderRight: `1px solid ${tokens.colorNeutralStroke2}`,
-    background: `linear-gradient(180deg, ${tokens.colorNeutralBackground2} 0%, ${tokens.colorNeutralBackground3} 100%)`
+    background: `linear-gradient(180deg, ${tokens.colorNeutralBackground2} 0%, rgba(255,255,255,0.01) 100%)`
   },
   railHeader: {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'flex-start',
-    gap: '10px',
-    padding: '4px 10px 0'
+    gap: '14px',
+    padding: '0 8px'
   },
   profile: {
     display: 'flex',
     alignItems: 'flex-start',
-    gap: '12px',
+    gap: '14px',
     width: '100%'
   },
   profileText: {
     display: 'grid',
-    gap: '4px'
+    gap: '4px',
+    minWidth: 0
   },
   appEyebrow: {
     color: tokens.colorNeutralForeground3,
@@ -53,12 +54,12 @@ const useStyles = makeStyles({
   },
   navSurface: {
     display: 'grid',
-    gap: '6px',
+    gap: '8px',
     flex: 1,
     minHeight: 0
   },
   navLabel: {
-    padding: '0 10px',
+    padding: '0 12px',
     color: tokens.colorNeutralForeground3
   },
   navRoot: {
@@ -67,12 +68,12 @@ const useStyles = makeStyles({
   },
   navItem: {
     display: 'grid',
-    gridTemplateColumns: '20px minmax(0, 1fr)',
-    gap: '10px',
+    gridTemplateColumns: '18px minmax(0, 1fr)',
+    gap: '14px',
     alignItems: 'center',
     width: '100%',
     minWidth: 0,
-    padding: '2px 0'
+    minHeight: '24px'
   },
   navGlyph: {
     color: tokens.colorBrandForeground1,
@@ -85,13 +86,13 @@ const useStyles = makeStyles({
     whiteSpace: 'nowrap',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
-    lineHeight: '1.2'
+    lineHeight: '1.25'
   },
   footnote: {
-    padding: '10px 12px',
-    borderRadius: '12px',
+    padding: '12px 14px',
+    borderRadius: '16px',
     border: `1px solid ${tokens.colorNeutralStroke2}`,
-    background: tokens.colorNeutralBackground1,
+    background: `linear-gradient(180deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)`,
     color: tokens.colorNeutralForeground3,
     lineHeight: '1.45'
   },
@@ -100,20 +101,33 @@ const useStyles = makeStyles({
     minHeight: 0,
     display: 'flex',
     flexDirection: 'column',
-    padding: '16px 20px 20px'
+    padding: '18px 28px 24px'
   },
   topbar: {
     display: 'flex',
-    justifyContent: 'flex-end',
+    justifyContent: 'space-between',
     gap: '16px',
     alignItems: 'center',
-    padding: '0 0 18px'
+    minHeight: '44px',
+    padding: '0 0 14px'
+  },
+  topbarLeading: {
+    minWidth: 0,
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px'
+  },
+  topbarTitle: {
+    color: tokens.colorNeutralForeground3
   },
   searchWrap: {
-    width: 'min(420px, 100%)'
+    width: 'min(480px, 100%)',
+    marginLeft: 'auto',
+    marginRight: 'auto'
   },
   searchInput: {
-    borderRadius: '999px'
+    borderRadius: '999px',
+    backgroundColor: 'rgba(255,255,255,0.04)'
   },
   statusBar: {
     display: 'flex',
@@ -141,7 +155,14 @@ const useStyles = makeStyles({
   responsiveTopbar: {
     '@media (max-width: 840px)': {
       flexDirection: 'column',
-      alignItems: 'flex-start'
+      alignItems: 'stretch'
+    }
+  },
+  responsiveSearchWrap: {
+    '@media (max-width: 840px)': {
+      width: '100%',
+      marginLeft: 0,
+      marginRight: 0
     }
   }
 })
@@ -199,7 +220,11 @@ export default function AppLayout({ bridgeMode, currentItem, children }) {
 
         <div className={styles.content}>
           <header className={mergeClasses(styles.topbar, styles.responsiveTopbar)}>
-            <div className={styles.searchWrap}>
+            <div className={styles.topbarLeading}>
+              <Text size={200} className={styles.topbarTitle}>Settings-style debugger</Text>
+            </div>
+
+            <div className={mergeClasses(styles.searchWrap, styles.responsiveSearchWrap)}>
               <Input className={styles.searchInput} aria-label="Search" value="Find a setting" readOnly contentBefore="⌕" />
             </div>
 

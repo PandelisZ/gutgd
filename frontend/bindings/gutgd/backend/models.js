@@ -173,6 +173,34 @@ export class AgentChatResponse {
     }
 }
 
+export class AgentModelOption {
+    /**
+     * Creates a new AgentModelOption instance.
+     * @param {Partial<AgentModelOption>} [$$source = {}] - The source object to create the AgentModelOption.
+     */
+    constructor($$source = {}) {
+        if (!("id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["id"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AgentModelOption instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {AgentModelOption}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new AgentModelOption(/** @type {Partial<AgentModelOption>} */($$parsedSource));
+    }
+}
+
 export class AgentSettings {
     /**
      * Creates a new AgentSettings instance.
@@ -192,6 +220,20 @@ export class AgentSettings {
              * @type {string}
              */
             this["model"] = "";
+        }
+        if (!("reasoning_effort" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["reasoning_effort"] = "";
+        }
+        if (!("system_prompt" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["system_prompt"] = "";
         }
 
         Object.assign(this, $$source);

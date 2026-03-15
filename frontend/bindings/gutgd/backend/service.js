@@ -224,11 +224,20 @@ export function HighlightRegion(req) {
 }
 
 /**
+ * @returns {$CancellablePromise<$models.AgentModelOption[]>}
+ */
+export function ListAgentModels() {
+    return $Call.ByID(540252835).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType12($result);
+    }));
+}
+
+/**
  * @returns {$CancellablePromise<$models.WindowSummary[]>}
  */
 export function ListWindows() {
     return $Call.ByID(573994497).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType11($result);
+        return $$createType13($result);
     }));
 }
 
@@ -384,4 +393,6 @@ const $$createType7 = $models.WindowSummary.createFrom;
 const $$createType8 = $models.AgentSettings.createFrom;
 const $$createType9 = $models.DiagnosticsResponse.createFrom;
 const $$createType10 = $models.ScreenSizeResult.createFrom;
-const $$createType11 = $Create.Array($$createType7);
+const $$createType11 = $models.AgentModelOption.createFrom;
+const $$createType12 = $Create.Array($$createType11);
+const $$createType13 = $Create.Array($$createType7);

@@ -12,6 +12,7 @@ export {
     AgentChatMessage,
     AgentChatRequest,
     AgentChatResponse,
+    AgentModelOption,
     AgentSettings,
     AgentToolEvent,
     AgentUsage,

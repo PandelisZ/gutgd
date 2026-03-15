@@ -43,9 +43,11 @@ function mockResult(method) {
     case 'ClipboardHasText':
       return { has_text: true }
     case 'GetAgentSettings':
-      return { api_key: '', model: 'gpt-5.4' }
+      return { api_key: '', model: 'gpt-5.4', reasoning_effort: 'medium', system_prompt: '' }
+    case 'ListAgentModels':
+      return [{ id: 'gpt-5.4' }, { id: 'gpt-5-mini' }, { id: 'gpt-4.1' }]
     case 'SaveAgentSettings':
-      return { api_key: '', model: 'gpt-5.4' }
+      return { api_key: '', model: 'gpt-5.4', reasoning_effort: 'medium', system_prompt: '' }
     case 'ChatWithAgent':
       return {
         message: {

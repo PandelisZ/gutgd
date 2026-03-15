@@ -9,6 +9,9 @@ import { api } from '../lib/api'
 export default function AgentView() {
   const [apiKey, setAPIKey] = useState('')
   const [model, setModel] = useState('gpt-5.4')
+  const [models, setModels] = useState([])
+  const [reasoningEffort, setReasoningEffort] = useState('medium')
+  const [systemPrompt, setSystemPrompt] = useState('')
   const [message, setMessage] = useState('List the active window title and current mouse position.')
   const [messages, setMessages] = useState([])
   const [toolEvents, setToolEvents] = useState([])
@@ -25,6 +28,10 @@ export default function AgentView() {
         const settings = await api.getAgentSettings()
         setAPIKey(settings.api_key || '')
         setModel(settings.model || 'gpt-5.4')
+        setReasoningEffort(settings.reasoning_effort || 'medium')
+        setSystemPrompt(settings.system_prompt || '')
+        const options = await api.listAgentModels()
+        setModels(options || [])
       } catch (nextError) {
         setError(nextError.message || String(nextError))
       } finally {
@@ -42,10 +49,14 @@ export default function AgentView() {
     try {
       const saved = await api.saveAgentSettings({
         api_key: apiKey,
-        model
+        model,
+        reasoning_effort: reasoningEffort,
+        system_prompt: systemPrompt
       })
       setAPIKey(saved.api_key || '')
       setModel(saved.model || 'gpt-5.4')
+      setReasoningEffort(saved.reasoning_effort || 'medium')
+      setSystemPrompt(saved.system_prompt || '')
       setStatus('Settings saved.')
     } catch (nextError) {
       setError(nextError.message || String(nextError))
@@ -100,7 +111,27 @@ export default function AgentView() {
               <Input type="password" value={apiKey} onChange={(_, data) => setAPIKey(data.value)} />
             </Field>
             <Field label="Model">
-              <Input value={model} onChange={(_, data) => setModel(data.value)} />
+              <select className="gutgd-nativeSelect" value={model} onChange={(event) => setModel(event.target.value)}>
+                {models.map((item) => (
+                  <option key={item.id} value={item.id}>{item.id}</option>
+                ))}
+                {!models.some((item) => item.id === model) ? <option value={model}>{model}</option> : null}
+              </select>
+            </Field>
+          </div>
+          <div className="gutgd-grid2">
+            <Field label="Reasoning effort">
+              <select className="gutgd-nativeSelect" value={reasoningEffort} onChange={(event) => setReasoningEffort(event.target.value)}>
+                <option value="none">none</option>
+                <option value="minimal">minimal</option>
+                <option value="low">low</option>
+                <option value="medium">medium</option>
+                <option value="high">high</option>
+                <option value="xhigh">xhigh</option>
+              </select>
+            </Field>
+            <Field label="System prompt">
+              <Textarea value={systemPrompt} onChange={(_, data) => setSystemPrompt(data.value)} />
             </Field>
           </div>
           {status ? <div className="gutgd-statusNote">{status}</div> : null}

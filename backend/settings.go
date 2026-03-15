@@ -13,7 +13,21 @@ func normalizeAgentSettings(settings AgentSettings) AgentSettings {
 	if settings.Model == "" {
 		settings.Model = defaultAgentModel
 	}
+	settings.ReasoningEffort = normalizeReasoningEffort(settings.ReasoningEffort)
+	if settings.ReasoningEffort == "" {
+		settings.ReasoningEffort = "medium"
+	}
+	settings.SystemPrompt = strings.TrimSpace(settings.SystemPrompt)
 	return settings
+}
+
+func normalizeReasoningEffort(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "none", "minimal", "low", "medium", "high", "xhigh":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return ""
+	}
 }
 
 func (s *Service) loadAgentSettings() (AgentSettings, error) {

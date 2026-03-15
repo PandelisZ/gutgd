@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
 	openai "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/responses"
+	"github.com/openai/openai-go/v3/shared"
 )
 
 const (
@@ -18,8 +20,10 @@ const (
 )
 
 type AgentSettings struct {
-	APIKey string `json:"api_key"`
-	Model  string `json:"model"`
+	APIKey          string `json:"api_key"`
+	Model           string `json:"model"`
+	ReasoningEffort string `json:"reasoning_effort"`
+	SystemPrompt    string `json:"system_prompt"`
 }
 
 type AgentChatMessage struct {
@@ -53,6 +57,10 @@ type AgentChatResponse struct {
 	Usage      AgentUsage       `json:"usage"`
 }
 
+type AgentModelOption struct {
+	ID string `json:"id"`
+}
+
 type agentTool struct {
 	Name        string
 	Description string
@@ -72,6 +80,38 @@ func (s *Service) SaveAgentSettings(settings AgentSettings) (AgentSettings, erro
 	return settings, nil
 }
 
+func (s *Service) ListAgentModels() ([]AgentModelOption, error) {
+	settings, err := s.loadAgentSettings()
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(settings.APIKey) == "" {
+		return nil, fmt.Errorf("openai api key is required")
+	}
+
+	client := openai.NewClient(option.WithAPIKey(settings.APIKey))
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	page, err := client.Models.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]AgentModelOption, 0, len(page.Data))
+	for _, item := range page.Data {
+		if strings.TrimSpace(item.ID) == "" {
+			continue
+		}
+		items = append(items, AgentModelOption{ID: item.ID})
+	}
+
+	slices.SortFunc(items, func(a, b AgentModelOption) int {
+		return strings.Compare(a.ID, b.ID)
+	})
+	return items, nil
+}
+
 func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error) {
 	settings, err := s.loadAgentSettings()
 	if err != nil {
@@ -86,10 +126,8 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 
 	client := openai.NewClient(option.WithAPIKey(settings.APIKey))
 	tools := s.agentTools()
-
-	inputItems := []responses.ResponseInputItemUnionParam{
-		responses.ResponseInputItemParamOfMessage(agentDeveloperPrompt(), responses.EasyInputMessageRoleDeveloper),
-	}
+	instructions := combineInstructions(settings.SystemPrompt)
+	inputItems := make([]responses.ResponseInputItemUnionParam, 0, len(req.Messages))
 	for _, message := range req.Messages {
 		role := normalizeAgentRole(message.Role)
 		content := strings.TrimSpace(message.Content)
@@ -98,7 +136,7 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 		}
 		inputItems = append(inputItems, responses.ResponseInputItemParamOfMessage(content, responses.EasyInputMessageRole(role)))
 	}
-	if len(inputItems) == 1 {
+	if len(inputItems) == 0 {
 		return AgentChatResponse{}, fmt.Errorf("at least one non-empty user or assistant message is required")
 	}
 
@@ -106,11 +144,14 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 	defer cancel()
 
 	response, err := client.Responses.New(ctx, responses.ResponseNewParams{
-		Model: openai.ChatModel(settings.Model),
+		Instructions: openai.String(instructions),
+		Model:        openai.ChatModel(settings.Model),
 		Input: responses.ResponseNewParamsInputUnion{
 			OfInputItemList: inputItems,
 		},
-		Tools: s.agentToolParams(tools),
+		ParallelToolCalls: openai.Bool(true),
+		Reasoning:         reasoningParam(settings.ReasoningEffort),
+		Tools:             s.agentToolParams(tools),
 	})
 	if err != nil {
 		return AgentChatResponse{}, err
@@ -151,11 +192,13 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 		}
 
 		response, err = client.Responses.New(ctx, responses.ResponseNewParams{
+			Instructions:       openai.String(instructions),
 			Model:              openai.ChatModel(settings.Model),
 			PreviousResponseID: openai.String(response.ID),
 			Input: responses.ResponseNewParamsInputUnion{
 				OfInputItemList: outputs,
 			},
+			Reasoning: reasoningParam(settings.ReasoningEffort),
 		})
 		if err != nil {
 			return AgentChatResponse{}, err
@@ -644,6 +687,31 @@ Summarize what you did, include notable tool results, and be explicit when the n
 Do not invent tool results.`)
 }
 
+func combineInstructions(systemPrompt string) string {
+	systemPrompt = strings.TrimSpace(systemPrompt)
+	if systemPrompt == "" {
+		return agentDeveloperPrompt()
+	}
+	return agentDeveloperPrompt() + "\n\nAdditional system prompt:\n" + systemPrompt
+}
+
+func reasoningParam(value string) shared.ReasoningParam {
+	switch normalizeReasoningEffort(value) {
+	case "none":
+		return shared.ReasoningParam{Effort: shared.ReasoningEffortNone}
+	case "minimal":
+		return shared.ReasoningParam{Effort: shared.ReasoningEffortMinimal}
+	case "low":
+		return shared.ReasoningParam{Effort: shared.ReasoningEffortLow}
+	case "high":
+		return shared.ReasoningParam{Effort: shared.ReasoningEffortHigh}
+	case "xhigh":
+		return shared.ReasoningParam{Effort: shared.ReasoningEffortXhigh}
+	default:
+		return shared.ReasoningParam{Effort: shared.ReasoningEffortMedium}
+	}
+}
+
 func normalizeAgentRole(role string) string {
 	switch strings.ToLower(strings.TrimSpace(role)) {
 	case "user":
@@ -736,14 +804,18 @@ func regionSchema(description string) map[string]any {
 }
 
 func objectSchema(properties map[string]any, required ...string) map[string]any {
+	required = make([]string, 0, len(properties))
+	for key := range properties {
+		required = append(required, key)
+	}
+	slices.Sort(required)
+
 	schema := map[string]any{
 		"type":                 "object",
 		"properties":           properties,
 		"additionalProperties": false,
 	}
-	if len(required) > 0 {
-		schema["required"] = required
-	}
+	schema["required"] = required
 	return schema
 }
 

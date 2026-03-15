@@ -3,6 +3,7 @@ import { callWithRuntime } from './wails'
 
 export const api = {
   getAgentSettings: () => callWithRuntime('GetAgentSettings', () => Service.GetAgentSettings()),
+  listAgentModels: () => callWithRuntime('ListAgentModels', () => Service.ListAgentModels()),
   saveAgentSettings: (payload) => callWithRuntime('SaveAgentSettings', () => Service.SaveAgentSettings(payload)),
   chatWithAgent: (payload) => callWithRuntime('ChatWithAgent', () => Service.ChatWithAgent(payload)),
   getDiagnostics: (mutable) => callWithRuntime('GetDiagnostics', () => Service.GetDiagnostics(mutable)),
