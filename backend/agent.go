@@ -1,9 +1,14 @@
 package backend
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -17,6 +22,8 @@ import (
 const (
 	defaultAgentModel = "gpt-5.4"
 	maxAgentSteps     = 8
+	maxAgentContinues = 3
+	continueMessage   = "continue"
 )
 
 type AgentSettings struct {
@@ -34,6 +41,7 @@ type AgentChatMessage struct {
 type AgentChatRequest struct {
 	Messages           []AgentChatMessage `json:"messages"`
 	PreviousResponseID string             `json:"previous_response_id"`
+	ClientRunID        string             `json:"client_run_id"`
 }
 
 type AgentToolEvent struct {
@@ -70,8 +78,58 @@ type AgentTranscriptItem struct {
 	Error     string `json:"error"`
 }
 
+type AgentProgressEvent struct {
+	RunID      string               `json:"run_id"`
+	Kind       string               `json:"kind"`
+	Status     string               `json:"status"`
+	Item       *AgentTranscriptItem `json:"item"`
+	ToolEvent  *AgentToolEvent      `json:"tool_event"`
+	ResponseID string               `json:"response_id"`
+}
+
 type AgentModelOption struct {
 	ID string `json:"id"`
+}
+
+type AnalyzeScreenshotRequest struct {
+	Path   string `json:"path"`
+	Prompt string `json:"prompt"`
+	Offset Point  `json:"offset"`
+	Scale  Scale  `json:"scale"`
+	Detail string `json:"detail"`
+}
+
+type AnalyzeScreenshotResult struct {
+	Path     string `json:"path"`
+	Offset   Point  `json:"offset"`
+	Scale    Scale  `json:"scale"`
+	Analysis string `json:"analysis"`
+}
+
+type AgentCoordinateSpace struct {
+	Mode    string         `json:"mode"`
+	Origin  Point          `json:"origin"`
+	Window  *WindowSummary `json:"window,omitempty"`
+	Message string         `json:"message"`
+}
+
+type AgentTranslatedPointResult struct {
+	CoordinateSpace AgentCoordinateSpace `json:"coordinate_space"`
+	Requested       Point                `json:"requested"`
+	ScreenPoint     Point                `json:"screen_point"`
+	Result          any                  `json:"result"`
+}
+
+type AgentTranslatedRegionResult struct {
+	CoordinateSpace AgentCoordinateSpace `json:"coordinate_space"`
+	Requested       Region               `json:"requested"`
+	ScreenRegion    Region               `json:"screen_region"`
+	Result          any                  `json:"result"`
+}
+
+type agentCoordinateState struct {
+	Mode   string
+	Window *WindowSummary
 }
 
 type agentTool struct {
@@ -138,7 +196,8 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 	}
 
 	client := openai.NewClient(option.WithAPIKey(settings.APIKey))
-	tools := s.agentTools()
+	coordinateState := s.loadAgentCoordinateState(req.PreviousResponseID)
+	tools := s.agentToolsWithState(coordinateState)
 	instructions := combineInstructions(settings.SystemPrompt)
 	inputItems := make([]responses.ResponseInputItemUnionParam, 0, len(req.Messages))
 	for _, message := range req.Messages {
@@ -153,8 +212,16 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 		return AgentChatResponse{}, fmt.Errorf("at least one non-empty user or assistant message is required")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
+	ctx := context.Background()
+	runID := strings.TrimSpace(req.ClientRunID)
+	if runID == "" {
+		runID = fmt.Sprintf("agent-%d", time.Now().UnixNano())
+	}
+	s.emitAgentProgress(runID, AgentProgressEvent{
+		RunID:  runID,
+		Kind:   "status",
+		Status: "Running agent…",
+	})
 
 	params := responses.ResponseNewParams{
 		Instructions: openai.String(instructions),
@@ -175,57 +242,54 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 	if err != nil {
 		return AgentChatResponse{}, err
 	}
+	s.emitAgentProgress(runID, AgentProgressEvent{
+		RunID:  runID,
+		Kind:   "status",
+		Status: "Model responded. Processing tool calls…",
+	})
 
 	toolEvents := make([]AgentToolEvent, 0)
 	transcriptItems := make([]AgentTranscriptItem, 0)
-	for step := 0; step < maxAgentSteps; step++ {
+	totalUsage := AgentUsage{}
+	accumulateAgentUsage(&totalUsage, response)
+	lastToolStepSignature := ""
+	continueCount := 0
+	for step := 0; ; step++ {
 		outputs := make([]responses.ResponseInputItemUnionParam, 0)
-		functionCalls := 0
+		functionCalls := make([]responses.ResponseFunctionToolCall, 0)
 
 		for _, item := range response.Output {
-			if item.Type == "message" {
-				message := item.AsMessage()
-				text := strings.TrimSpace(outputMessageText(message))
-				if text != "" {
-					transcriptItems = append(transcriptItems, AgentTranscriptItem{
-						Kind:    "message",
-						Role:    "assistant",
-						Content: text,
-					})
-				}
+			nextItems := transcriptItemsFromResponseOutput(item)
+			transcriptItems = append(transcriptItems, nextItems...)
+			for _, transcriptItem := range nextItems {
+				itemCopy := transcriptItem
+				s.emitAgentProgress(runID, AgentProgressEvent{
+					RunID:  runID,
+					Kind:   "item",
+					Item:   &itemCopy,
+					Status: "Updated transcript.",
+				})
 			}
 
 			if item.Type != "function_call" {
 				continue
 			}
 
-			functionCalls++
-			call := item.AsFunctionCall()
-			output, event := runAgentTool(tools, call.Name, call.Arguments, call.CallID)
-			toolEvents = append(toolEvents, event)
-			transcriptItems = append(transcriptItems,
-				AgentTranscriptItem{
-					Kind:      "tool_call",
-					Name:      call.Name,
-					CallID:    call.CallID,
-					Arguments: call.Arguments,
-				},
-				AgentTranscriptItem{
-					Kind:   "tool_output",
-					Name:   call.Name,
-					CallID: call.CallID,
-					Output: output,
-					Error:  event.Error,
-				},
-			)
-			outputs = append(outputs, responses.ResponseInputItemParamOfFunctionCallOutput(call.CallID, output))
+			functionCalls = append(functionCalls, item.AsFunctionCall())
 		}
 
-		if functionCalls == 0 {
+		if len(functionCalls) == 0 {
 			finalMessage := strings.TrimSpace(response.OutputText())
 			if finalMessage == "" {
 				finalMessage = latestAssistantMessage(transcriptItems)
 			}
+			s.emitAgentProgress(runID, AgentProgressEvent{
+				RunID:      runID,
+				Kind:       "complete",
+				Status:     "Agent response ready.",
+				ResponseID: response.ID,
+			})
+			s.saveAgentCoordinateState(response.ID, coordinateState)
 			return AgentChatResponse{
 				Message: AgentChatMessage{
 					Role:    "assistant",
@@ -234,31 +298,171 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 				ToolEvents: toolEvents,
 				Items:      transcriptItems,
 				ResponseID: response.ID,
-				Usage: AgentUsage{
-					InputTokens:     response.Usage.InputTokens,
-					OutputTokens:    response.Usage.OutputTokens,
-					ReasoningTokens: response.Usage.OutputTokensDetails.ReasoningTokens,
-					TotalTokens:     response.Usage.TotalTokens,
-				},
+				Usage:      totalUsage,
 			}, nil
 		}
 
-		response, err = client.Responses.New(ctx, responses.ResponseNewParams{
+		signature := agentToolStepSignature(functionCalls)
+		if signature != "" && signature == lastToolStepSignature {
+			message := repeatedToolCallMessage(functionCalls)
+			transcriptItems = append(transcriptItems, AgentTranscriptItem{
+				Kind:    "message",
+				Role:    "assistant",
+				Content: message,
+			})
+			s.emitAgentProgress(runID, AgentProgressEvent{
+				RunID:  runID,
+				Kind:   "complete",
+				Status: message,
+			})
+			return AgentChatResponse{
+				Message: AgentChatMessage{
+					Role:    "assistant",
+					Content: message,
+				},
+				ToolEvents: toolEvents,
+				Items:      transcriptItems,
+				ResponseID: "",
+				Usage:      totalUsage,
+			}, nil
+		}
+		lastToolStepSignature = signature
+
+		for _, call := range functionCalls {
+			output, event := runAgentTool(tools, call.Name, call.Arguments, call.CallID)
+			toolEvents = append(toolEvents, event)
+			callItem := AgentTranscriptItem{
+				Kind:      "tool_call",
+				Name:      call.Name,
+				CallID:    call.CallID,
+				Arguments: call.Arguments,
+			}
+			outputItem := AgentTranscriptItem{
+				Kind:   "tool_output",
+				Name:   call.Name,
+				CallID: call.CallID,
+				Output: output,
+				Error:  event.Error,
+			}
+			transcriptItems = append(transcriptItems, callItem, outputItem)
+			callItemCopy := callItem
+			outputItemCopy := outputItem
+			eventCopy := event
+			s.emitAgentProgress(runID, AgentProgressEvent{
+				RunID:  runID,
+				Kind:   "item",
+				Item:   &callItemCopy,
+				Status: "Calling tool…",
+			})
+			s.emitAgentProgress(runID, AgentProgressEvent{
+				RunID:  runID,
+				Kind:   "item",
+				Item:   &outputItemCopy,
+				Status: "Tool call completed.",
+			})
+			s.emitAgentProgress(runID, AgentProgressEvent{
+				RunID:     runID,
+				Kind:      "tool_event",
+				ToolEvent: &eventCopy,
+				Status:    "Tool event received.",
+			})
+			outputs = append(outputs, agentFunctionCallOutput(call.CallID, output))
+		}
+
+		if step+1 >= maxAgentSteps {
+			if continueCount >= maxAgentContinues {
+				message := "The agent reached the maximum tool-call depth before producing a final answer. Review the tool activity above and refine the request if needed."
+				transcriptItems = appendAssistantAfterTrailingContinue(transcriptItems, AgentTranscriptItem{
+					Kind:    "message",
+					Role:    "assistant",
+					Content: message,
+				})
+				s.emitAgentProgress(runID, AgentProgressEvent{
+					RunID:  runID,
+					Kind:   "complete",
+					Status: message,
+				})
+				return AgentChatResponse{
+					Message: AgentChatMessage{
+						Role:    "assistant",
+						Content: message,
+					},
+					ToolEvents: toolEvents,
+					Items:      transcriptItems,
+					ResponseID: "",
+					Usage:      totalUsage,
+				}, nil
+			}
+
+			s.emitAgentProgress(runID, AgentProgressEvent{
+				RunID:  runID,
+				Kind:   "status",
+				Status: "Deep tool chain reached. Sending continue.",
+			})
+
+			response, err = client.Responses.New(ctx, responses.ResponseNewParams{
+				Instructions:       openai.String(instructions),
+				Model:              openai.ChatModel(settings.Model),
+				PreviousResponseID: openai.String(response.ID),
+				Input: responses.ResponseNewParamsInputUnion{
+					OfInputItemList: continueInputItems(outputs),
+				},
+				ParallelToolCalls: openai.Bool(true),
+				Include:           []responses.ResponseIncludable{responses.ResponseIncludableReasoningEncryptedContent},
+				Reasoning:         reasoningParam(settings.ReasoningEffort),
+				Tools:             s.agentToolParams(tools),
+			})
+			if err != nil {
+				return AgentChatResponse{}, err
+			}
+			accumulateAgentUsage(&totalUsage, response)
+			continueItem := AgentTranscriptItem{
+				Kind:    "message",
+				Role:    "user",
+				Content: continueMessage,
+			}
+			transcriptItems = append(transcriptItems, continueItem)
+			continueItemCopy := continueItem
+			s.emitAgentProgress(runID, AgentProgressEvent{
+				RunID:  runID,
+				Kind:   "item",
+				Item:   &continueItemCopy,
+				Status: "Continue prompt sent.",
+			})
+			s.emitAgentProgress(runID, AgentProgressEvent{
+				RunID:  runID,
+				Kind:   "status",
+				Status: "Continue response received. Processing next step…",
+			})
+			continueCount++
+			step = -1
+			continue
+		}
+
+		nextParams := responses.ResponseNewParams{
 			Instructions:       openai.String(instructions),
 			Model:              openai.ChatModel(settings.Model),
 			PreviousResponseID: openai.String(response.ID),
 			Input: responses.ResponseNewParamsInputUnion{
 				OfInputItemList: outputs,
 			},
-			Include:   []responses.ResponseIncludable{responses.ResponseIncludableReasoningEncryptedContent},
-			Reasoning: reasoningParam(settings.ReasoningEffort),
-		})
+			ParallelToolCalls: openai.Bool(true),
+			Include:           []responses.ResponseIncludable{responses.ResponseIncludableReasoningEncryptedContent},
+			Reasoning:         reasoningParam(settings.ReasoningEffort),
+			Tools:             s.agentToolParams(tools),
+		}
+
+		response, err = client.Responses.New(ctx, nextParams)
 		if err != nil {
 			return AgentChatResponse{}, err
 		}
+		accumulateAgentUsage(&totalUsage, response)
+		s.emitAgentProgress(runID, AgentProgressEvent{
+			RunID:  runID,
+			Kind:   "status",
+			Status: "Tool outputs submitted. Waiting for model…",
+		})
 	}
-
-	return AgentChatResponse{}, fmt.Errorf("agent exceeded the maximum tool-call depth")
 }
 
 func (s *Service) agentToolParams(tools []agentTool) []responses.ToolUnionParam {
@@ -276,11 +480,98 @@ func (s *Service) agentToolParams(tools []agentTool) []responses.ToolUnionParam 
 	return result
 }
 
+func (s *Service) emitAgentProgress(runID string, event AgentProgressEvent) {
+	if s == nil || s.emitEvent == nil {
+		return
+	}
+	if strings.TrimSpace(event.RunID) == "" {
+		event.RunID = runID
+	}
+	s.emitEvent("agent_progress", event)
+}
+
 func (s *Service) agentTools() []agentTool {
-	return []agentTool{
+	return s.agentToolsForGOOS(runtime.GOOS)
+}
+
+func (s *Service) agentToolsForGOOS(goos string) []agentTool {
+	return s.agentToolsForGOOSWithState(goos, newAgentCoordinateState())
+}
+
+func (s *Service) agentToolsWithState(state *agentCoordinateState) []agentTool {
+	if state == nil {
+		state = newAgentCoordinateState()
+	}
+	return s.agentToolsForGOOSWithState(runtime.GOOS, state)
+}
+
+func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinateState) []agentTool {
+	if state == nil {
+		state = newAgentCoordinateState()
+	}
+	captureScreenDescription := "Capture the full screen to a file under the artifacts directory."
+	captureRegionDescription := "Capture a screen region to a file under the artifacts directory."
+	pressSpecialKeyDescription := "Press a non-text special key such as enter, return, tab, escape, space, backspace, delete, or the arrow keys. Use this after typing when you need to submit a text field or move focus without relying on low-level key chord tools."
+	if goos == "darwin" {
+		captureScreenDescription = "Capture the full screen to a file under the artifacts directory. On macOS 26+, this uses the safe OS screenshot fallback instead of the hidden native screen.capture path."
+		captureRegionDescription = "Capture a screen region to a file under the artifacts directory. On macOS 26+, this uses the safe OS screenshot fallback instead of the hidden native screen.capture path."
+		pressSpecialKeyDescription = "Press a non-text special key such as enter, return, tab, escape, space, backspace, delete, or the arrow keys. On macOS 26+, this uses the safe special-key path instead of the hidden low-level key chord tools."
+	}
+
+	tools := []agentTool{
+		{
+			Name:        "get_coordinate_space",
+			Description: "Read the current coordinate space. Screen space uses absolute screen coordinates. Window space uses coordinates relative to the selected window's top-left corner.",
+			Parameters:  emptyObjectSchema(),
+			Run: func(raw string) (any, error) {
+				return coordinateSpaceView(*state, "Current coordinate space."), nil
+			},
+		},
+		{
+			Name:        "switch_to_active_window_space",
+			Description: "Switch the coordinate space to the current active window. After this, x/y inputs for pointer and capture-region tools are interpreted relative to that window's top-left corner.",
+			Parameters:  emptyObjectSchema(),
+			Run: func(raw string) (any, error) {
+				window, err := s.GetActiveWindow()
+				if err != nil {
+					return nil, err
+				}
+				state.Mode = "window"
+				state.Window = cloneWindowSummary(window)
+				return coordinateSpaceView(*state, fmt.Sprintf("Switched to window space for %q.", window.Title)), nil
+			},
+		},
+		{
+			Name:        "switch_to_window_space",
+			Description: "Switch the coordinate space to a specific window by handle. After this, x/y inputs for pointer and capture-region tools are interpreted relative to that window's top-left corner.",
+			Parameters:  windowHandleSchema("Window handle to use as the window-space origin."),
+			Run: func(raw string) (any, error) {
+				var payload WindowHandleRequest
+				if err := decodeToolArgs(raw, &payload); err != nil {
+					return nil, err
+				}
+				window, err := s.FindWindowByHandle(payload)
+				if err != nil {
+					return nil, err
+				}
+				state.Mode = "window"
+				state.Window = cloneWindowSummary(window)
+				return coordinateSpaceView(*state, fmt.Sprintf("Switched to window space for %q.", window.Title)), nil
+			},
+		},
+		{
+			Name:        "switch_to_screen_space",
+			Description: "Exit window space and return to absolute screen coordinates.",
+			Parameters:  emptyObjectSchema(),
+			Run: func(raw string) (any, error) {
+				state.Mode = "screen"
+				state.Window = nil
+				return coordinateSpaceView(*state, "Switched to screen space."), nil
+			},
+		},
 		{
 			Name:        "type_text",
-			Description: "Type plain text into the currently focused application.",
+			Description: "Type plain text into the currently focused application. Use this for words, sentences, paragraphs, or any multi-character text input instead of spelling characters out with tap_keys.",
 			Parameters: objectSchema(map[string]any{
 				"text":          stringSchema("Text to type into the active application."),
 				"auto_delay_ms": integerSchema("Optional key delay in milliseconds."),
@@ -294,39 +585,65 @@ func (s *Service) agentTools() []agentTool {
 			},
 		},
 		{
-			Name:        "tap_keys",
-			Description: "Tap one or more keys, optionally as a key chord.",
-			Parameters:  keyboardKeysSchema(),
+			Name:        "type_text_block",
+			Description: "Type a full sentence, multiple sentences, or a paragraph into the currently focused application in a single tool call. Prefer this over tap_keys when entering natural language text.",
+			Parameters: objectSchema(map[string]any{
+				"text":          stringSchema("Full text to type into the active application."),
+				"auto_delay_ms": integerSchema("Optional key delay in milliseconds."),
+			}, "text"),
 			Run: func(raw string) (any, error) {
-				var payload KeyboardKeysRequest
+				var payload KeyboardTextRequest
 				if err := decodeToolArgs(raw, &payload); err != nil {
 					return nil, err
 				}
-				return s.TapKeys(payload)
+				return s.TypeText(payload)
 			},
 		},
 		{
-			Name:        "press_keys",
-			Description: "Press one or more keys without releasing them.",
-			Parameters:  keyboardKeysSchema(),
+			Name:        "press_special_key",
+			Description: pressSpecialKeyDescription,
+			Parameters: objectSchema(map[string]any{
+				"key":          enumSchema("Special key to press.", "enter", "return", "tab", "escape", "esc", "space", "backspace", "delete", "forward_delete", "up", "down", "left", "right"),
+				"repeat_count": integerSchema("Optional number of times to press the key."),
+			}, "key"),
 			Run: func(raw string) (any, error) {
-				var payload KeyboardKeysRequest
+				var payload KeyboardSpecialKeyRequest
 				if err := decodeToolArgs(raw, &payload); err != nil {
 					return nil, err
 				}
-				return s.PressKeys(payload)
+				return s.PressSpecialKey(payload)
 			},
 		},
 		{
-			Name:        "release_keys",
-			Description: "Release one or more keys that were previously pressed.",
-			Parameters:  keyboardKeysSchema(),
+			Name:        "analyze_screenshot",
+			Description: "Analyze a previously captured screenshot or region and explain what is visible relative to the provided screen offset and scale. For visually precise clicks, prefer capturing the active window or a smaller region first, then use this tool to convert image-local targets back into screen coordinates.",
+			Parameters: objectSchema(map[string]any{
+				"path":   stringSchema("Path returned by capture_screen or capture_region."),
+				"prompt": stringSchema("What to analyze in the screenshot, including the target you need to locate."),
+				"offset": objectSchema(map[string]any{
+					"x": integerSchema("Screen x-coordinate of the screenshot's top-left corner."),
+					"y": integerSchema("Screen y-coordinate of the screenshot's top-left corner."),
+				}, "x", "y"),
+				"scale": objectSchema(map[string]any{
+					"x": numberSchema("Horizontal screenshot pixel scale relative to screen coordinates. Use the scale returned by capture_screen or capture_region."),
+					"y": numberSchema("Vertical screenshot pixel scale relative to screen coordinates. Use the scale returned by capture_screen or capture_region."),
+				}, "x", "y"),
+				"detail": enumSchema("Optional vision detail level.", "low", "high", "auto", "original"),
+			}, "path", "prompt", "offset"),
 			Run: func(raw string) (any, error) {
-				var payload KeyboardKeysRequest
+				var payload AnalyzeScreenshotRequest
 				if err := decodeToolArgs(raw, &payload); err != nil {
 					return nil, err
 				}
-				return s.ReleaseKeys(payload)
+				settings, err := s.loadAgentSettings()
+				if err != nil {
+					return nil, err
+				}
+				if strings.TrimSpace(settings.APIKey) == "" {
+					return nil, fmt.Errorf("openai api key is required")
+				}
+				client := openai.NewClient(option.WithAPIKey(settings.APIKey))
+				return analyzeScreenshot(context.Background(), client, settings.Model, payload)
 			},
 		},
 		{
@@ -339,7 +656,7 @@ func (s *Service) agentTools() []agentTool {
 		},
 		{
 			Name:        "set_mouse_position",
-			Description: "Move the pointer directly to a screen coordinate.",
+			Description: "Move the pointer directly to a coordinate in the current coordinate space. In window space, x/y are relative to the selected window's top-left corner.",
 			Parameters: objectSchema(map[string]any{
 				"x":             integerSchema("Target x-coordinate."),
 				"y":             integerSchema("Target y-coordinate."),
@@ -350,12 +667,25 @@ func (s *Service) agentTools() []agentTool {
 				if err := decodeToolArgs(raw, &payload); err != nil {
 					return nil, err
 				}
-				return s.SetMousePosition(payload)
+				requested := Point{X: payload.X, Y: payload.Y}
+				screenPoint := translatePointToScreenSpace(requested, *state)
+				payload.X = screenPoint.X
+				payload.Y = screenPoint.Y
+				result, err := s.SetMousePosition(payload)
+				if err != nil {
+					return nil, err
+				}
+				return AgentTranslatedPointResult{
+					CoordinateSpace: coordinateSpaceView(*state, "Pointer target translated to screen space."),
+					Requested:       requested,
+					ScreenPoint:     screenPoint,
+					Result:          result,
+				}, nil
 			},
 		},
 		{
 			Name:        "move_mouse_line",
-			Description: "Move the pointer along a straight path to a coordinate.",
+			Description: "Move the pointer along a straight path to a coordinate in the current coordinate space. In window space, x/y are relative to the selected window's top-left corner.",
 			Parameters: objectSchema(map[string]any{
 				"x":             integerSchema("Target x-coordinate."),
 				"y":             integerSchema("Target y-coordinate."),
@@ -367,7 +697,20 @@ func (s *Service) agentTools() []agentTool {
 				if err := decodeToolArgs(raw, &payload); err != nil {
 					return nil, err
 				}
-				return s.MoveMouseLine(payload)
+				requested := Point{X: payload.X, Y: payload.Y}
+				screenPoint := translatePointToScreenSpace(requested, *state)
+				payload.X = screenPoint.X
+				payload.Y = screenPoint.Y
+				result, err := s.MoveMouseLine(payload)
+				if err != nil {
+					return nil, err
+				}
+				return AgentTranslatedPointResult{
+					CoordinateSpace: coordinateSpaceView(*state, "Pointer path target translated to screen space."),
+					Requested:       requested,
+					ScreenPoint:     screenPoint,
+					Result:          result,
+				}, nil
 			},
 		},
 		{
@@ -412,7 +755,7 @@ func (s *Service) agentTools() []agentTool {
 		},
 		{
 			Name:        "drag_mouse",
-			Description: "Drag the mouse from one point to another with the left button.",
+			Description: "Drag the mouse from one point to another with the left button using the current coordinate space. In window space, both endpoints are relative to the selected window's top-left corner.",
 			Parameters: objectSchema(map[string]any{
 				"from_x":        integerSchema("Start x-coordinate."),
 				"from_y":        integerSchema("Start y-coordinate."),
@@ -426,7 +769,30 @@ func (s *Service) agentTools() []agentTool {
 				if err := decodeToolArgs(raw, &payload); err != nil {
 					return nil, err
 				}
-				return s.DragMouse(payload)
+				requestedFrom := Point{X: payload.FromX, Y: payload.FromY}
+				requestedTo := Point{X: payload.ToX, Y: payload.ToY}
+				screenFrom := translatePointToScreenSpace(requestedFrom, *state)
+				screenTo := translatePointToScreenSpace(requestedTo, *state)
+				payload.FromX = screenFrom.X
+				payload.FromY = screenFrom.Y
+				payload.ToX = screenTo.X
+				payload.ToY = screenTo.Y
+				result, err := s.DragMouse(payload)
+				if err != nil {
+					return nil, err
+				}
+				return map[string]any{
+					"coordinate_space": coordinateSpaceView(*state, "Drag path translated to screen space."),
+					"requested": map[string]Point{
+						"from": requestedFrom,
+						"to":   requestedTo,
+					},
+					"screen_points": map[string]Point{
+						"from": screenFrom,
+						"to":   screenTo,
+					},
+					"result": result,
+				}, nil
 			},
 		},
 		{
@@ -439,7 +805,7 @@ func (s *Service) agentTools() []agentTool {
 		},
 		{
 			Name:        "capture_screen",
-			Description: "Capture the full screen to a file under the artifacts directory.",
+			Description: captureScreenDescription,
 			Parameters: objectSchema(map[string]any{
 				"file_name": stringSchema("Optional file name for the capture."),
 			}),
@@ -453,7 +819,7 @@ func (s *Service) agentTools() []agentTool {
 		},
 		{
 			Name:        "capture_region",
-			Description: "Capture a screen region to a file under the artifacts directory.",
+			Description: captureRegionDescription + " In window space, the region is relative to the selected window's top-left corner.",
 			Parameters: objectSchema(map[string]any{
 				"file_name": stringSchema("Optional file name for the capture."),
 				"region":    regionSchema("Region to capture."),
@@ -463,12 +829,23 @@ func (s *Service) agentTools() []agentTool {
 				if err := decodeToolArgs(raw, &payload); err != nil {
 					return nil, err
 				}
-				return s.CaptureRegion(payload)
+				requested := payload.Region
+				payload.Region = translateRegionToScreenSpace(payload.Region, *state)
+				result, err := s.CaptureRegion(payload)
+				if err != nil {
+					return nil, err
+				}
+				return AgentTranslatedRegionResult{
+					CoordinateSpace: coordinateSpaceView(*state, "Capture region translated to screen space."),
+					Requested:       requested,
+					ScreenRegion:    payload.Region,
+					Result:          result,
+				}, nil
 			},
 		},
 		{
 			Name:        "color_at",
-			Description: "Read the pixel color at a screen coordinate.",
+			Description: "Read the pixel color at a coordinate in the current coordinate space. In window space, x/y are relative to the selected window's top-left corner.",
 			Parameters: objectSchema(map[string]any{
 				"x": integerSchema("Target x-coordinate."),
 				"y": integerSchema("Target y-coordinate."),
@@ -478,19 +855,20 @@ func (s *Service) agentTools() []agentTool {
 				if err := decodeToolArgs(raw, &payload); err != nil {
 					return nil, err
 				}
-				return s.ColorAt(payload)
-			},
-		},
-		{
-			Name:        "highlight_region",
-			Description: "Highlight a region on the screen.",
-			Parameters:  regionSchema("Region to highlight."),
-			Run: func(raw string) (any, error) {
-				var payload Region
-				if err := decodeToolArgs(raw, &payload); err != nil {
+				requested := Point{X: payload.X, Y: payload.Y}
+				screenPoint := translatePointToScreenSpace(requested, *state)
+				payload.X = screenPoint.X
+				payload.Y = screenPoint.Y
+				result, err := s.ColorAt(payload)
+				if err != nil {
 					return nil, err
 				}
-				return s.HighlightRegion(payload)
+				return AgentTranslatedPointResult{
+					CoordinateSpace: coordinateSpaceView(*state, "Color sample translated to screen space."),
+					Requested:       requested,
+					ScreenPoint:     screenPoint,
+					Result:          result,
+				}, nil
 			},
 		},
 		{
@@ -688,6 +1066,64 @@ func (s *Service) agentTools() []agentTool {
 			},
 		},
 	}
+
+	if goos != "darwin" {
+		tools = slices.DeleteFunc(tools, func(tool agentTool) bool {
+			return tool.Name == "press_special_key"
+		})
+		tools = append(tools,
+			agentTool{
+				Name:        "highlight_region",
+				Description: "Highlight a region on the screen.",
+				Parameters:  regionSchema("Region to highlight."),
+				Run: func(raw string) (any, error) {
+					var payload Region
+					if err := decodeToolArgs(raw, &payload); err != nil {
+						return nil, err
+					}
+					return s.HighlightRegion(payload)
+				},
+			},
+			agentTool{
+				Name:        "tap_keys",
+				Description: "Tap one or more keys, optionally as a key chord.",
+				Parameters:  keyboardKeysSchema(),
+				Run: func(raw string) (any, error) {
+					var payload KeyboardKeysRequest
+					if err := decodeToolArgs(raw, &payload); err != nil {
+						return nil, err
+					}
+					return s.TapKeys(payload)
+				},
+			},
+			agentTool{
+				Name:        "press_keys",
+				Description: "Press one or more keys without releasing them.",
+				Parameters:  keyboardKeysSchema(),
+				Run: func(raw string) (any, error) {
+					var payload KeyboardKeysRequest
+					if err := decodeToolArgs(raw, &payload); err != nil {
+						return nil, err
+					}
+					return s.PressKeys(payload)
+				},
+			},
+			agentTool{
+				Name:        "release_keys",
+				Description: "Release one or more keys that were previously pressed.",
+				Parameters:  keyboardKeysSchema(),
+				Run: func(raw string) (any, error) {
+					var payload KeyboardKeysRequest
+					if err := decodeToolArgs(raw, &payload); err != nil {
+						return nil, err
+					}
+					return s.ReleaseKeys(payload)
+				},
+			},
+		)
+	}
+
+	return tools
 }
 
 func runAgentTool(tools []agentTool, name string, raw string, callID string) (string, AgentToolEvent) {
@@ -719,17 +1155,32 @@ func runAgentTool(tools []agentTool, name string, raw string, callID string) (st
 }
 
 func agentDeveloperPrompt() string {
-	return strings.TrimSpace(`You are a desktop automation assistant inside gutgd.
+	return agentDeveloperPromptForGOOS(runtime.GOOS)
+}
+
+func agentDeveloperPromptForGOOS(goos string) string {
+	prompt := `You are a desktop automation assistant inside gutgd.
 Use the provided tools whenever the user asks you to inspect or control the desktop environment.
 Prefer the smallest number of tool calls needed to satisfy the request.
 Summarize what you did, include notable tool results, and be explicit when the native backend reports an unsupported capability.
 Do not treat GUT_ENABLE_LIVE_TESTS or the diagnostics field live_enabled as a blocker for normal gutgd actions. Those fields belong to the separate gut live-test harness. In gutgd, use the actual tool call result and the feature_status/capability availability to decide whether an action is possible.
+When entering plain language text, sentences, or paragraphs into an application, prefer type_text or type_text_block. When you need to submit a text field or move focus with a non-text key, prefer press_special_key for enter, return, tab, escape, space, backspace, delete, or arrow keys. Use tap_keys only for non-text keys, shortcuts, or isolated single-key actions when that tool is available.
+After a tool returns a concrete result or structured error, do not repeat the same tool call with identical arguments unless the user explicitly asked for a retry or the environment changed.
+For visually precise clicks, do not guess repeatedly. First identify the relevant window with get_active_window or list_windows, then capture that window or a smaller region with capture_region, inspect it, choose a target, move the mouse, and if the target is small or ambiguous capture again to verify before clicking. If a click does not clearly change the UI, reassess with another capture instead of clicking nearby coordinates repeatedly.
+Do not use full-screen capture for a precise click when the target is inside a single app window unless window discovery failed. Prefer smaller verification regions around the intended target after moving the pointer. Use get_active_window, list_windows, and capture_region to narrow the search area before clicking.
+On macOS, screenshots may be retina-scaled, so image pixels are often 2x screen coordinates. The macOS menu bar is included in full-screen captures; do not add a separate menu-bar offset. Use the capture metadata to convert image coordinates back to screen coordinates.
+capture_region returns the screen offset of the captured image and may include screenshot scale metadata. When you need to identify or click a visual target inside a screenshot, prefer analyze_screenshot with that path so the backend can recover the capture metadata and answer in screen coordinates. For small controls, rerun capture_region on a tighter area before the final click instead of reasoning from a broad capture.
 When continuing an existing conversation through previous_response_id, rely on the server-side conversation state rather than asking the user to resend old turns.
 Never print pseudo tool-call syntax such as "to=functions.*", JSON envelopes, or planning text in place of an actual tool call. If you need a tool, call it through the Responses function tool interface.
 If multiple independent tool calls are needed in the same step, issue real parallel function calls rather than describing them in text.
-Use common key aliases naturally: meta, super, cmd, and command all mean the Windows key in this environment.
+Use common key aliases naturally: meta, super, cmd, and command all mean the platform meta key in this environment.
 Do not narrate that you are about to call a tool. Call the tool first, then describe the result after the tool outputs are available.
-Do not invent tool results.`)
+Do not invent tool results.`
+	if goos == "darwin" {
+		prompt += `
+On macOS 26+, capture_screen and capture_region use the safe OS screenshot fallback instead of the hidden native screen.capture capability. Prefer press_special_key for enter, return, tab, escape, space, backspace, delete, and arrow keys. Low-level tap_keys, press_keys, release_keys, and highlight_region are intentionally unavailable on macOS 26+.`
+	}
+	return strings.TrimSpace(prompt)
 }
 
 func latestAssistantMessage(items []AgentTranscriptItem) string {
@@ -739,6 +1190,295 @@ func latestAssistantMessage(items []AgentTranscriptItem) string {
 		}
 	}
 	return ""
+}
+
+func agentToolStepSignature(calls []responses.ResponseFunctionToolCall) string {
+	if len(calls) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(calls))
+	for _, call := range calls {
+		parts = append(parts, call.Name+"|"+normalizeAgentToolArguments(call.Arguments))
+	}
+	return strings.Join(parts, "\n")
+}
+
+func normalizeAgentToolArguments(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "{}"
+	}
+	buffer := &bytes.Buffer{}
+	if err := json.Compact(buffer, []byte(trimmed)); err == nil {
+		return buffer.String()
+	}
+	return trimmed
+}
+
+func repeatedToolCallMessage(calls []responses.ResponseFunctionToolCall) string {
+	names := make([]string, 0, len(calls))
+	for _, call := range calls {
+		names = append(names, call.Name)
+	}
+	return fmt.Sprintf("The agent stopped because it started repeating the same tool call pattern without making progress: %s.", strings.Join(names, ", "))
+}
+
+func agentFunctionCallOutput(callID string, output string) responses.ResponseInputItemUnionParam {
+	if items, ok := imageFunctionCallOutputItems(output); ok {
+		return responses.ResponseInputItemParamOfFunctionCallOutput(callID, items)
+	}
+	return responses.ResponseInputItemParamOfFunctionCallOutput(callID, output)
+}
+
+func imageFunctionCallOutputItems(output string) (responses.ResponseFunctionCallOutputItemListParam, bool) {
+	capture, ok := captureResultFromOutput(output)
+	if !ok {
+		return nil, false
+	}
+	dataURL, err := imageDataURL(capture.Path)
+	if err != nil {
+		return nil, false
+	}
+	return responses.ResponseFunctionCallOutputItemListParam{
+		{
+			OfInputText: &responses.ResponseInputTextContentParam{
+				Text: captureInstructionText(capture),
+			},
+		},
+		{
+			OfInputImage: &responses.ResponseInputImageContentParam{
+				ImageURL: openai.String(dataURL),
+				Detail:   responses.ResponseInputImageContentDetailHigh,
+			},
+		},
+	}, true
+}
+
+func captureResultFromOutput(output string) (CaptureResult, bool) {
+	var payload CaptureResult
+	if err := json.Unmarshal([]byte(output), &payload); err != nil {
+		return CaptureResult{}, false
+	}
+	path := strings.TrimSpace(payload.Path)
+	if path == "" {
+		return CaptureResult{}, false
+	}
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".png", ".jpg", ".jpeg", ".webp", ".gif":
+		payload.Path = path
+		if payload.Scale.X <= 0 {
+			payload.Scale.X = 1
+		}
+		if payload.Scale.Y <= 0 {
+			payload.Scale.Y = 1
+		}
+		return payload, true
+	default:
+		return CaptureResult{}, false
+	}
+}
+
+func captureInstructionText(capture CaptureResult) string {
+	return strings.TrimSpace(fmt.Sprintf(
+		`%s
+
+Capture metadata:
+- path: %s
+- screen offset: (%d, %d)
+- screenshot scale: x=%.4f, y=%.4f image pixels per screen coordinate
+
+If you identify a target at image coordinates (image_x, image_y), convert it back to screen coordinates with:
+- screen_x = %d + image_x / %.4f
+- screen_y = %d + image_y / %.4f
+
+On macOS, full-screen captures already include the menu bar. Do not add a separate menu-bar offset.`,
+		capture.Message,
+		capture.Path,
+		capture.Offset.X,
+		capture.Offset.Y,
+		capture.Scale.X,
+		capture.Scale.Y,
+		capture.Offset.X,
+		capture.Scale.X,
+		capture.Offset.Y,
+		capture.Scale.Y,
+	))
+}
+
+func imageDataURL(path string) (string, error) {
+	bytes, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return "data:" + imageMediaType(path) + ";base64," + base64.StdEncoding.EncodeToString(bytes), nil
+}
+
+func imageMediaType(path string) string {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".webp":
+		return "image/webp"
+	case ".gif":
+		return "image/gif"
+	default:
+		return "application/octet-stream"
+	}
+}
+
+func analyzeScreenshot(ctx context.Context, client openai.Client, model string, req AnalyzeScreenshotRequest) (AnalyzeScreenshotResult, error) {
+	path := strings.TrimSpace(req.Path)
+	prompt := strings.TrimSpace(req.Prompt)
+	if path == "" {
+		return AnalyzeScreenshotResult{}, fmt.Errorf("path is required")
+	}
+	if prompt == "" {
+		return AnalyzeScreenshotResult{}, fmt.Errorf("prompt is required")
+	}
+	if metadata, err := readCaptureMetadata(path); err == nil {
+		req.Offset = metadata.Offset
+		req.Scale = metadata.Scale
+	}
+	dataURL, err := imageDataURL(path)
+	if err != nil {
+		return AnalyzeScreenshotResult{}, err
+	}
+	detail := normalizeImageDetailParam(req.Detail)
+	scaleX := req.Scale.X
+	if scaleX <= 0 {
+		scaleX = 1
+	}
+	scaleY := req.Scale.Y
+	if scaleY <= 0 {
+		scaleY = 1
+	}
+	offsetText := fmt.Sprintf(
+		"The screenshot top-left corner is at screen coordinates (%d, %d). The screenshot scale is x=%.4f and y=%.4f image pixels per screen coordinate. Convert image-local targets back into screen coordinates using screen_x = %d + image_x / %.4f and screen_y = %d + image_y / %.4f. Answer using screen coordinates when suggesting cursor targets.",
+		req.Offset.X,
+		req.Offset.Y,
+		scaleX,
+		scaleY,
+		req.Offset.X,
+		scaleX,
+		req.Offset.Y,
+		scaleY,
+	)
+	response, err := client.Responses.New(ctx, responses.ResponseNewParams{
+		Model: openai.ChatModel(model),
+		Input: responses.ResponseNewParamsInputUnion{
+			OfInputItemList: []responses.ResponseInputItemUnionParam{
+				responses.ResponseInputItemParamOfMessage(
+					responses.ResponseInputMessageContentListParam{
+						{
+							OfInputText: &responses.ResponseInputTextParam{
+								Text: offsetText + "\n\n" + prompt,
+							},
+						},
+						{
+							OfInputImage: &responses.ResponseInputImageParam{
+								ImageURL: openai.String(dataURL),
+								Detail:   detail,
+							},
+						},
+					},
+					responses.EasyInputMessageRoleUser,
+				),
+			},
+		},
+	})
+	if err != nil {
+		return AnalyzeScreenshotResult{}, err
+	}
+	return AnalyzeScreenshotResult{
+		Path:     path,
+		Offset:   req.Offset,
+		Scale:    Scale{X: scaleX, Y: scaleY},
+		Analysis: strings.TrimSpace(response.OutputText()),
+	}, nil
+}
+
+func normalizeImageDetailParam(value string) responses.ResponseInputImageDetail {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "low":
+		return responses.ResponseInputImageDetailLow
+	case "high":
+		return responses.ResponseInputImageDetailHigh
+	case "original":
+		return responses.ResponseInputImageDetailOriginal
+	default:
+		return responses.ResponseInputImageDetailAuto
+	}
+}
+
+func continueInputItems(outputs []responses.ResponseInputItemUnionParam) []responses.ResponseInputItemUnionParam {
+	items := append(make([]responses.ResponseInputItemUnionParam, 0, len(outputs)+1), outputs...)
+	items = append(items, responses.ResponseInputItemParamOfMessage(continueMessage, responses.EasyInputMessageRoleUser))
+	return items
+}
+
+func appendAssistantAfterTrailingContinue(items []AgentTranscriptItem, assistant AgentTranscriptItem) []AgentTranscriptItem {
+	if len(items) == 0 {
+		return append(items, assistant)
+	}
+
+	last := items[len(items)-1]
+	if last.Kind != "message" || last.Role != "user" || last.Content != continueMessage {
+		return append(items, assistant)
+	}
+
+	next := append(make([]AgentTranscriptItem, 0, len(items)+1), items[:len(items)-1]...)
+	next = append(next, assistant, last)
+	return next
+}
+
+func transcriptItemsFromResponseOutput(item responses.ResponseOutputItemUnion) []AgentTranscriptItem {
+	switch item.Type {
+	case "message":
+		message := item.AsMessage()
+		text := strings.TrimSpace(outputMessageText(message))
+		if text == "" {
+			return nil
+		}
+		return []AgentTranscriptItem{{
+			Kind:    "message",
+			Role:    "assistant",
+			Content: text,
+		}}
+	case "reasoning":
+		reasoning := item.AsReasoning()
+		text := strings.TrimSpace(reasoningItemText(reasoning))
+		if text == "" {
+			return nil
+		}
+		return []AgentTranscriptItem{{
+			Kind:    "reasoning",
+			Role:    "assistant",
+			Content: text,
+		}}
+	default:
+		return nil
+	}
+}
+
+func responseOutputToInputItem(item responses.ResponseOutputItemUnion) (responses.ResponseInputItemUnionParam, bool) {
+	switch item.Type {
+	case "message":
+		message := item.AsMessage().ToParam()
+		return responses.ResponseInputItemUnionParam{OfOutputMessage: &message}, true
+	case "reasoning":
+		reasoning := item.AsReasoning().ToParam()
+		return responses.ResponseInputItemUnionParam{OfReasoning: &reasoning}, true
+	case "function_call":
+		call := item.AsFunctionCall().ToParam()
+		return responses.ResponseInputItemUnionParam{OfFunctionCall: &call}, true
+	case "compaction":
+		compaction := item.AsCompaction()
+		return responses.ResponseInputItemParamOfCompaction(compaction.EncryptedContent), true
+	default:
+		return responses.ResponseInputItemUnionParam{}, false
+	}
 }
 
 func outputMessageText(message responses.ResponseOutputMessage) string {
@@ -758,12 +1498,40 @@ func outputMessageText(message responses.ResponseOutputMessage) string {
 	return strings.Join(parts, "\n\n")
 }
 
+func reasoningItemText(item responses.ResponseReasoningItem) string {
+	parts := make([]string, 0, len(item.Summary)+len(item.Content))
+	for _, summary := range item.Summary {
+		if text := strings.TrimSpace(summary.Text); text != "" {
+			parts = append(parts, text)
+		}
+	}
+	if len(parts) > 0 {
+		return strings.Join(parts, "\n\n")
+	}
+	for _, content := range item.Content {
+		if text := strings.TrimSpace(content.Text); text != "" {
+			parts = append(parts, text)
+		}
+	}
+	return strings.Join(parts, "\n\n")
+}
+
 func combineInstructions(systemPrompt string) string {
 	systemPrompt = strings.TrimSpace(systemPrompt)
 	if systemPrompt == "" {
 		return agentDeveloperPrompt()
 	}
 	return agentDeveloperPrompt() + "\n\nAdditional system prompt:\n" + systemPrompt
+}
+
+func accumulateAgentUsage(total *AgentUsage, response *responses.Response) {
+	if total == nil || response == nil {
+		return
+	}
+	total.InputTokens += response.Usage.InputTokens
+	total.OutputTokens += response.Usage.OutputTokens
+	total.ReasoningTokens += response.Usage.OutputTokensDetails.ReasoningTokens
+	total.TotalTokens += response.Usage.TotalTokens
 }
 
 func reasoningParam(value string) shared.ReasoningParam {
@@ -900,6 +1668,13 @@ func stringSchema(description string) map[string]any {
 func integerSchema(description string) map[string]any {
 	return map[string]any{
 		"type":        "integer",
+		"description": description,
+	}
+}
+
+func numberSchema(description string) map[string]any {
+	return map[string]any{
+		"type":        "number",
 		"description": description,
 	}
 }

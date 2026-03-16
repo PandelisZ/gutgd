@@ -2,16 +2,19 @@ version: '3'
 
 tasks:
   install:frontend:deps:
+    dir: ./frontend
     cmds:
-      - powershell -NoProfile -Command "Set-Location '.\frontend'; pnpm install"
+      - pnpm install
 
   dev:frontend:
+    dir: ./frontend
     cmds:
-      - powershell -NoProfile -Command "Set-Location '.\frontend'; pnpm dev"
+      - pnpm dev
 
   build:frontend:
+    dir: ./frontend
     cmds:
-      - powershell -NoProfile -Command "Set-Location '.\frontend'; pnpm build"
+      - pnpm build
 
   generate:bindings:
     cmds:

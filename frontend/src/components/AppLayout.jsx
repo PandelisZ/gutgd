@@ -1,5 +1,6 @@
-import { Avatar, Badge, Input, Text, makeStyles, mergeClasses, tokens } from '@fluentui/react-components'
+import { Avatar, Badge, Button, Input, Text, makeStyles, mergeClasses, tokens } from '@fluentui/react-components'
 import { Nav, NavItem } from '@fluentui/react-nav'
+import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 
 import { navItems } from '../app/routes'
@@ -19,6 +20,12 @@ const useStyles = makeStyles({
     background: `linear-gradient(180deg, ${tokens.colorNeutralBackground1} 0%, ${tokens.colorNeutralBackground1Hover} 100%)`,
     boxShadow: tokens.shadow4
   },
+  shellCollapsed: {
+    gridTemplateColumns: '84px minmax(0, 1fr)',
+    '@media (max-width: 1100px)': {
+      gridTemplateColumns: '1fr'
+    }
+  },
   rail: {
     display: 'flex',
     flexDirection: 'column',
@@ -29,6 +36,10 @@ const useStyles = makeStyles({
     borderRight: `1px solid ${tokens.colorNeutralStroke2}`,
     background: `linear-gradient(180deg, ${tokens.colorNeutralBackground2} 0%, rgba(255,255,255,0.01) 100%)`
   },
+  railCollapsed: {
+    padding: '20px 10px 16px',
+    alignItems: 'center'
+  },
   railHeader: {
     display: 'flex',
     flexDirection: 'column',
@@ -36,16 +47,26 @@ const useStyles = makeStyles({
     gap: '14px',
     padding: '0 8px'
   },
+  railHeaderCollapsed: {
+    alignItems: 'center',
+    padding: 0
+  },
   profile: {
     display: 'flex',
     alignItems: 'flex-start',
     gap: '14px',
     width: '100%'
   },
+  profileCollapsed: {
+    justifyContent: 'center'
+  },
   profileText: {
     display: 'grid',
     gap: '4px',
     minWidth: 0
+  },
+  navSurfaceCollapsed: {
+    width: '100%'
   },
   appEyebrow: {
     color: tokens.colorNeutralForeground3,
@@ -75,6 +96,11 @@ const useStyles = makeStyles({
     minWidth: 0,
     minHeight: '24px'
   },
+  navItemCollapsed: {
+    gridTemplateColumns: '1fr',
+    justifyItems: 'center',
+    gap: 0
+  },
   navGlyph: {
     color: tokens.colorBrandForeground1,
     textAlign: 'center'
@@ -96,6 +122,9 @@ const useStyles = makeStyles({
     color: tokens.colorNeutralForeground3,
     lineHeight: '1.45'
   },
+  footnoteHidden: {
+    display: 'none'
+  },
   content: {
     minWidth: 0,
     minHeight: 0,
@@ -116,6 +145,11 @@ const useStyles = makeStyles({
     display: 'flex',
     alignItems: 'center',
     gap: '12px'
+  },
+  collapseToggle: {
+    minWidth: '36px',
+    paddingLeft: '10px',
+    paddingRight: '10px'
   },
   topbarTitle: {
     color: tokens.colorNeutralForeground3
@@ -171,25 +205,26 @@ export default function AppLayout({ bridgeMode, currentItem, children }) {
   const styles = useStyles()
   const navigate = useNavigate()
   const location = useLocation()
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
 
   return (
     <div className={styles.frame}>
-      <div className={mergeClasses(styles.shell, styles.responsiveShell)}>
-        <aside className={mergeClasses(styles.rail, styles.responsiveRail)}>
-          <div className={styles.railHeader}>
-            <Text size={100} className={styles.appEyebrow}>Navigation</Text>
-            <div className={styles.profile}>
+      <div className={mergeClasses(styles.shell, styles.responsiveShell, isSidebarCollapsed && styles.shellCollapsed)}>
+        <aside className={mergeClasses(styles.rail, styles.responsiveRail, isSidebarCollapsed && styles.railCollapsed)}>
+          <div className={mergeClasses(styles.railHeader, isSidebarCollapsed && styles.railHeaderCollapsed)}>
+            {!isSidebarCollapsed ? <Text size={100} className={styles.appEyebrow}>Navigation</Text> : null}
+            <div className={mergeClasses(styles.profile, isSidebarCollapsed && styles.profileCollapsed)}>
               <Avatar name="gut graphical debugger" size={48} color="brand" />
-              <div className={styles.profileText}>
+              {!isSidebarCollapsed ? <div className={styles.profileText}>
                 <Text as="div" weight="semibold" size={400}>gutgd</Text>
                 <Text as="div" size={300}>gut graphical debugger</Text>
                 <Text as="div" size={200} appearance="subtle">Desktop verification harness</Text>
-              </div>
+              </div> : null}
             </div>
           </div>
 
-          <div className={styles.navSurface}>
-            <Text size={200} weight="semibold" className={styles.navLabel}>Main areas</Text>
+          <div className={mergeClasses(styles.navSurface, isSidebarCollapsed && styles.navSurfaceCollapsed)}>
+            {!isSidebarCollapsed ? <Text size={200} weight="semibold" className={styles.navLabel}>Main areas</Text> : null}
             <Nav
               aria-label="gut feature sections"
               className={styles.navRoot}
@@ -202,18 +237,18 @@ export default function AppLayout({ bridgeMode, currentItem, children }) {
             >
               {navItems.map((item) => (
                 <NavItem key={item.key} value={item.path}>
-                  <div className={styles.navItem}>
+                  <div className={mergeClasses(styles.navItem, isSidebarCollapsed && styles.navItemCollapsed)} aria-label={item.title} title={item.title}>
                     <span className={styles.navGlyph} aria-hidden="true">{item.glyph}</span>
-                    <span className={styles.navCopy}>
+                    {!isSidebarCollapsed ? <span className={styles.navCopy}>
                       <Text className={styles.navTitle}>{item.title}</Text>
-                    </span>
+                    </span> : null}
                   </div>
                 </NavItem>
               ))}
             </Nav>
           </div>
 
-          <div className={styles.footnote}>
+          <div className={mergeClasses(styles.footnote, isSidebarCollapsed && styles.footnoteHidden)}>
             This app drives the live <code>gut</code> APIs. Keyboard, mouse, clipboard, screen, and window actions affect the real host session.
           </div>
         </aside>
@@ -221,6 +256,14 @@ export default function AppLayout({ bridgeMode, currentItem, children }) {
         <div className={styles.content}>
           <header className={mergeClasses(styles.topbar, styles.responsiveTopbar)}>
             <div className={styles.topbarLeading}>
+              <Button
+                appearance="subtle"
+                className={styles.collapseToggle}
+                aria-label={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                onClick={() => setIsSidebarCollapsed((current) => !current)}
+              >
+                {isSidebarCollapsed ? '☰' : '←'}
+              </Button>
               <Text size={200} className={styles.topbarTitle}>Settings-style debugger</Text>
             </div>
 

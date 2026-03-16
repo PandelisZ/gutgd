@@ -2,8 +2,14 @@ package backend
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -13,47 +19,58 @@ import (
 	"gut"
 	"gut/clipboard"
 	"gut/native/common"
-	guttesting "gut/testing"
 	"gut/shared"
+	guttesting "gut/testing"
 	gutwindow "gut/window"
 )
 
-var supportedCapabilities = []common.Capability{
-	common.CapabilityKeyboardType,
-	common.CapabilityKeyboardTap,
-	common.CapabilityKeyboardToggle,
-	common.CapabilityKeyboardDelay,
-	common.CapabilityMouseMove,
-	common.CapabilityMouseDrag,
-	common.CapabilityMousePosition,
-	common.CapabilityMouseClick,
-	common.CapabilityMouseToggle,
-	common.CapabilityMouseScroll,
-	common.CapabilityMouseDelay,
-	common.CapabilityScreenSize,
-	common.CapabilityScreenHighlight,
-	common.CapabilityScreenCapture,
-	common.CapabilityWindowList,
-	common.CapabilityWindowActive,
-	common.CapabilityWindowRect,
-	common.CapabilityWindowTitle,
-	common.CapabilityWindowFocus,
-	common.CapabilityWindowMove,
-	common.CapabilityWindowResize,
-	common.CapabilityWindowMinimize,
-	common.CapabilityWindowRestore,
+func requiredCapabilitiesForGOOS(goos string) []common.Capability {
+	capabilities := []common.Capability{
+		common.CapabilityKeyboardType,
+		common.CapabilityKeyboardDelay,
+		common.CapabilityMouseMove,
+		common.CapabilityMouseDrag,
+		common.CapabilityMousePosition,
+		common.CapabilityMouseClick,
+		common.CapabilityMouseToggle,
+		common.CapabilityMouseScroll,
+		common.CapabilityMouseDelay,
+		common.CapabilityScreenSize,
+		common.CapabilityWindowList,
+		common.CapabilityWindowActive,
+		common.CapabilityWindowRect,
+		common.CapabilityWindowTitle,
+		common.CapabilityWindowFocus,
+		common.CapabilityWindowMove,
+		common.CapabilityWindowResize,
+	}
+	if goos != "darwin" {
+		capabilities = append(capabilities,
+			common.CapabilityKeyboardTap,
+			common.CapabilityKeyboardToggle,
+			common.CapabilityScreenHighlight,
+			common.CapabilityScreenCapture,
+		)
+	}
+	return capabilities
 }
 
 type Service struct {
-	mu         sync.Mutex
-	nut        *gut.Nut
-	clipboard  *clipboard.SystemProvider
-	artifactDir string
+	mu                    sync.Mutex
+	nut                   *gut.Nut
+	clipboard             *clipboard.SystemProvider
+	artifactDir           string
+	emitEvent             func(string, any)
+	agentCoordinateStates map[string]agentCoordinateState
 }
 
 type ActionResult struct {
 	OK      bool   `json:"ok"`
 	Message string `json:"message"`
+}
+
+func (s *Service) SetEventEmitter(emit func(string, any)) {
+	s.emitEvent = emit
 }
 
 type Point struct {
@@ -94,21 +111,26 @@ type FeatureStatus struct {
 }
 
 type DiagnosticsResponse struct {
-	Report         guttesting.EnvironmentReport `json:"report"`
-	FeatureStatus  []FeatureStatus              `json:"feature_status"`
-	ArtifactsPath  string                       `json:"artifacts_path"`
-	WorkingDir     string                       `json:"working_dir"`
-	Runtime        string                       `json:"runtime"`
+	Report        guttesting.EnvironmentReport `json:"report"`
+	FeatureStatus []FeatureStatus              `json:"feature_status"`
+	ArtifactsPath string                       `json:"artifacts_path"`
+	WorkingDir    string                       `json:"working_dir"`
+	Runtime       string                       `json:"runtime"`
 }
 
 type KeyboardTextRequest struct {
-	Text          string `json:"text"`
-	AutoDelayMS   int    `json:"auto_delay_ms"`
+	Text        string `json:"text"`
+	AutoDelayMS int    `json:"auto_delay_ms"`
 }
 
 type KeyboardKeysRequest struct {
-	Keys          []string `json:"keys"`
-	AutoDelayMS   int      `json:"auto_delay_ms"`
+	Keys        []string `json:"keys"`
+	AutoDelayMS int      `json:"auto_delay_ms"`
+}
+
+type KeyboardSpecialKeyRequest struct {
+	Key         string `json:"key"`
+	RepeatCount int    `json:"repeat_count"`
 }
 
 type MouseMoveRequest struct {
@@ -156,6 +178,8 @@ type CaptureRegionRequest struct {
 type CaptureResult struct {
 	Path    string `json:"path"`
 	Message string `json:"message"`
+	Offset  Point  `json:"offset"`
+	Scale   Scale  `json:"scale"`
 }
 
 type PointRequest struct {
@@ -172,6 +196,11 @@ type ColorPointResult struct {
 type ScreenSizeResult struct {
 	Width  int `json:"width"`
 	Height int `json:"height"`
+}
+
+type Scale struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
 }
 
 type ClipboardCopyRequest struct {
@@ -203,27 +232,28 @@ type WindowResizeRequest struct {
 }
 
 type WindowQueryRequest struct {
-	Title            string `json:"title"`
-	UseRegex         bool   `json:"use_regex"`
-	TimeoutMS        int    `json:"timeout_ms"`
-	IntervalMS       int    `json:"interval_ms"`
+	Title      string `json:"title"`
+	UseRegex   bool   `json:"use_regex"`
+	TimeoutMS  int    `json:"timeout_ms"`
+	IntervalMS int    `json:"interval_ms"`
 }
 
 type ColorQueryRequest struct {
-	R         uint8   `json:"r"`
-	G         uint8   `json:"g"`
-	B         uint8   `json:"b"`
-	A         uint8   `json:"a"`
-	Region    *Region `json:"region"`
-	TimeoutMS int     `json:"timeout_ms"`
-	IntervalMS int    `json:"interval_ms"`
+	R          uint8   `json:"r"`
+	G          uint8   `json:"g"`
+	B          uint8   `json:"b"`
+	A          uint8   `json:"a"`
+	Region     *Region `json:"region"`
+	TimeoutMS  int     `json:"timeout_ms"`
+	IntervalMS int     `json:"interval_ms"`
 }
 
 func NewService() *Service {
 	return &Service{
-		nut:         gut.NewDefault(),
-		clipboard:   clipboard.NewSystemProvider(),
-		artifactDir: filepath.Join(".", ".artifacts"),
+		nut:                   gut.NewDefault(),
+		clipboard:             clipboard.NewSystemProvider(),
+		artifactDir:           filepath.Join(".", ".artifacts"),
+		agentCoordinateStates: make(map[string]agentCoordinateState),
 	}
 }
 
@@ -233,7 +263,7 @@ func (s *Service) GetDiagnostics(mutable bool) (DiagnosticsResponse, error) {
 
 	report := guttesting.Evaluate(guttesting.Options{
 		Mutable:              mutable,
-		RequiredCapabilities: supportedCapabilities,
+		RequiredCapabilities: requiredCapabilitiesForGOOS(runtime.GOOS),
 	})
 	workingDir, err := os.Getwd()
 	if err != nil {
@@ -242,7 +272,7 @@ func (s *Service) GetDiagnostics(mutable bool) (DiagnosticsResponse, error) {
 
 	return DiagnosticsResponse{
 		Report:        report.CapabilityReport(),
-		FeatureStatus: s.featureStatuses(report),
+		FeatureStatus: featureStatusesForGOOS(runtime.GOOS, report),
 		ArtifactsPath: s.artifactDir,
 		WorkingDir:    workingDir,
 		Runtime:       fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
@@ -279,6 +309,33 @@ func (s *Service) ReleaseKeys(req KeyboardKeysRequest) (ActionResult, error) {
 	return s.runKeyboardKeys(req, func(ctx context.Context, keys []shared.Key) error {
 		return s.nut.Keyboard.Release(ctx, keys...)
 	}, "Released")
+}
+
+func (s *Service) PressSpecialKey(req KeyboardSpecialKeyRequest) (ActionResult, error) {
+	if runtime.GOOS != "darwin" {
+		return ActionResult{}, fmt.Errorf("press_special_key is currently only exposed as a safe fallback on macOS")
+	}
+	keyCode, ok := darwinSpecialKeyCode(strings.TrimSpace(req.Key))
+	if !ok {
+		return ActionResult{}, fmt.Errorf("unsupported special key %q", req.Key)
+	}
+	repeatCount := req.RepeatCount
+	if repeatCount <= 0 {
+		repeatCount = 1
+	}
+	script := darwinSpecialKeyScript(keyCode, repeatCount)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "osascript", "-e", script)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		message := strings.TrimSpace(string(output))
+		if message == "" {
+			return ActionResult{}, err
+		}
+		return ActionResult{}, fmt.Errorf("%v: %s", err, message)
+	}
+	return ActionResult{OK: true, Message: fmt.Sprintf("Pressed %s %d time(s)", req.Key, repeatCount)}, nil
 }
 
 func (s *Service) GetMousePosition() (Point, error) {
@@ -413,12 +470,23 @@ func (s *Service) GetScreenSize() (ScreenSizeResult, error) {
 }
 
 func (s *Service) CaptureScreen(req CaptureRequest) (CaptureResult, error) {
+	if runtime.GOOS == "darwin" {
+		return s.captureWithCommand("", req.FileName, Point{}, Size{})
+	}
 	return s.capture(func(ctx context.Context, path string) (string, error) {
 		return s.nut.Screen.Capture(ctx, path)
-	}, req.FileName)
+	}, req.FileName, Point{})
 }
 
 func (s *Service) CaptureRegion(req CaptureRegionRequest) (CaptureResult, error) {
+	if runtime.GOOS == "darwin" {
+		return s.captureWithCommand(
+			fmt.Sprintf("%d,%d,%d,%d", req.Region.Left, req.Region.Top, req.Region.Width, req.Region.Height),
+			req.FileName,
+			Point{X: req.Region.Left, Y: req.Region.Top},
+			Size{Width: req.Region.Width, Height: req.Region.Height},
+		)
+	}
 	region := shared.Region{
 		Left:   req.Region.Left,
 		Top:    req.Region.Top,
@@ -427,7 +495,7 @@ func (s *Service) CaptureRegion(req CaptureRegionRequest) (CaptureResult, error)
 	}
 	return s.capture(func(ctx context.Context, path string) (string, error) {
 		return s.nut.Screen.CaptureRegion(ctx, path, region)
-	}, req.FileName)
+	}, req.FileName, Point{X: req.Region.Left, Y: req.Region.Top})
 }
 
 func (s *Service) ColorAt(req PointRequest) (ColorPointResult, error) {
@@ -449,6 +517,9 @@ func (s *Service) ColorAt(req PointRequest) (ColorPointResult, error) {
 }
 
 func (s *Service) HighlightRegion(req Region) (ActionResult, error) {
+	if runtime.GOOS == "darwin" {
+		return ActionResult{}, common.CapabilityUnavailable("highlightRegion", runtime.GOOS, common.CapabilityScreenHighlight, "highlight_region is intentionally hidden on macOS 26+; use capture_region plus analyze_screenshot instead")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -729,7 +800,7 @@ func (s *Service) ClipboardClear() (ActionResult, error) {
 	return ActionResult{OK: true, Message: "Cleared clipboard text"}, nil
 }
 
-func (s *Service) capture(run func(context.Context, string) (string, error), fileName string) (CaptureResult, error) {
+func (s *Service) capture(run func(context.Context, string) (string, error), fileName string, offset Point) (CaptureResult, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
@@ -744,10 +815,158 @@ func (s *Service) capture(run func(context.Context, string) (string, error), fil
 	if err != nil {
 		return CaptureResult{}, err
 	}
-	return CaptureResult{
+	result := CaptureResult{
 		Path:    savedPath,
 		Message: fmt.Sprintf("Saved capture to %s", savedPath),
-	}, nil
+		Offset:  offset,
+		Scale:   Scale{X: 1, Y: 1},
+	}
+	if err := writeCaptureMetadata(result); err != nil {
+		return CaptureResult{}, err
+	}
+	return result, nil
+}
+
+func (s *Service) captureWithCommand(region string, fileName string, offset Point, logicalSize Size) (CaptureResult, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	path, err := s.capturePath(fileName)
+	if err != nil {
+		return CaptureResult{}, err
+	}
+
+	cmd := exec.CommandContext(ctx, "screencapture", screencaptureArgs(region, path)...)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		message := strings.TrimSpace(string(output))
+		if message == "" {
+			return CaptureResult{}, err
+		}
+		return CaptureResult{}, fmt.Errorf("%v: %s", err, message)
+	}
+
+	if logicalSize.Width == 0 || logicalSize.Height == 0 {
+		width, err := s.nut.Screen.Width(ctx)
+		if err != nil {
+			return CaptureResult{}, err
+		}
+		height, err := s.nut.Screen.Height(ctx)
+		if err != nil {
+			return CaptureResult{}, err
+		}
+		logicalSize = Size{Width: width, Height: height}
+	}
+
+	scale := captureScale(path, logicalSize)
+
+	result := CaptureResult{
+		Path:    path,
+		Message: fmt.Sprintf("Saved capture to %s", path),
+		Offset:  offset,
+		Scale:   scale,
+	}
+	if err := writeCaptureMetadata(result); err != nil {
+		return CaptureResult{}, err
+	}
+	return result, nil
+}
+
+func captureScale(path string, logicalSize Size) Scale {
+	if logicalSize.Width <= 0 || logicalSize.Height <= 0 {
+		return Scale{X: 1, Y: 1}
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return Scale{X: 1, Y: 1}
+	}
+	defer file.Close()
+
+	config, _, err := image.DecodeConfig(file)
+	if err != nil {
+		return Scale{X: 1, Y: 1}
+	}
+
+	scaleX := float64(config.Width) / float64(logicalSize.Width)
+	scaleY := float64(config.Height) / float64(logicalSize.Height)
+	if scaleX <= 0 {
+		scaleX = 1
+	}
+	if scaleY <= 0 {
+		scaleY = 1
+	}
+
+	return Scale{X: scaleX, Y: scaleY}
+}
+
+func writeCaptureMetadata(result CaptureResult) error {
+	data, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(captureMetadataPath(result.Path), data, 0o644)
+}
+
+func readCaptureMetadata(path string) (CaptureResult, error) {
+	data, err := os.ReadFile(captureMetadataPath(path))
+	if err != nil {
+		return CaptureResult{}, err
+	}
+	var result CaptureResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		return CaptureResult{}, err
+	}
+	return result, nil
+}
+
+func captureMetadataPath(path string) string {
+	return path + ".json"
+}
+
+func screencaptureArgs(region string, path string) []string {
+	args := []string{"-x"}
+	if strings.TrimSpace(region) != "" {
+		args = append(args, "-R", region)
+	}
+	return append(args, path)
+}
+
+func darwinSpecialKeyCode(value string) (int, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "enter", "return":
+		return 36, true
+	case "tab":
+		return 48, true
+	case "escape", "esc":
+		return 53, true
+	case "space":
+		return 49, true
+	case "backspace", "delete":
+		return 51, true
+	case "forward_delete":
+		return 117, true
+	case "up":
+		return 126, true
+	case "down":
+		return 125, true
+	case "left":
+		return 123, true
+	case "right":
+		return 124, true
+	default:
+		return 0, false
+	}
+}
+
+func darwinSpecialKeyScript(keyCode int, repeatCount int) string {
+	return fmt.Sprintf(`tell application "System Events"
+repeat %d times
+	key code %d
+end repeat
+end tell`, repeatCount, keyCode)
 }
 
 func (s *Service) capturePath(fileName string) (string, error) {
@@ -866,8 +1085,8 @@ func (s *Service) windowSummary(ctx context.Context, window *gut.Window) (Window
 	}, nil
 }
 
-func (s *Service) featureStatuses(report guttesting.Report) []FeatureStatus {
-	statuses := make([]FeatureStatus, 0, len(report.CapabilityStatuses())+3)
+func featureStatusesForGOOS(goos string, report guttesting.Report) []FeatureStatus {
+	statuses := make([]FeatureStatus, 0, len(report.CapabilityStatuses())+11)
 	for _, status := range report.CapabilityStatuses() {
 		statuses = append(statuses, FeatureStatus{
 			ID:           string(status.Capability),
@@ -875,7 +1094,32 @@ func (s *Service) featureStatuses(report guttesting.Report) []FeatureStatus {
 			Reason:       status.Reason,
 		})
 	}
+
+	if goos == "darwin" {
+		statuses = append(statuses,
+			availableFeatureStatus("capture_screen", "available via the macOS safe screenshot fallback; native screen.capture is intentionally not required"),
+			availableFeatureStatus("capture_region", "available via the macOS safe screenshot fallback; native screen.capture is intentionally not required"),
+			availableFeatureStatus("press_special_key", "available via the macOS System Events special-key path"),
+			unavailableFeatureStatus("tap_keys", "intentionally hidden on macOS 26+; use type_text or press_special_key instead"),
+			unavailableFeatureStatus("press_keys", "intentionally hidden on macOS 26+ because low-level key toggles are not exposed"),
+			unavailableFeatureStatus("release_keys", "intentionally hidden on macOS 26+ because low-level key toggles are not exposed"),
+			unavailableFeatureStatus("highlight_region", "intentionally hidden on macOS 26+; use capture_region plus analyze_screenshot instead"),
+		)
+	} else {
+		statuses = append(statuses,
+			toolStatusFromCapability("capture_screen", report.Capabilities.Status(common.CapabilityScreenCapture), "available through the native screen.capture backend"),
+			toolStatusFromCapability("capture_region", report.Capabilities.Status(common.CapabilityScreenCapture), "available through the native screen.capture backend"),
+			unavailableFeatureStatus("press_special_key", "only exposed on darwin as the macOS safe special-key path"),
+			toolStatusFromCapability("tap_keys", report.Capabilities.Status(common.CapabilityKeyboardTap), "available through the native keyboard.tap backend"),
+			toolStatusFromCapability("press_keys", report.Capabilities.Status(common.CapabilityKeyboardToggle), "available through the native keyboard.toggle backend"),
+			toolStatusFromCapability("release_keys", report.Capabilities.Status(common.CapabilityKeyboardToggle), "available through the native keyboard.toggle backend"),
+			toolStatusFromCapability("highlight_region", report.Capabilities.Status(common.CapabilityScreenHighlight), "available through the native screen.highlight backend"),
+		)
+	}
+
 	statuses = append(statuses,
+		toolStatusFromCapability("minimize_window", report.Capabilities.Status(common.CapabilityWindowMinimize), "available through the native window.minimize backend"),
+		toolStatusFromCapability("restore_window", report.Capabilities.Status(common.CapabilityWindowRestore), "available through the native window.restore backend"),
 		FeatureStatus{
 			ID:           "screen.find.image",
 			Availability: "unavailable",
@@ -893,6 +1137,34 @@ func (s *Service) featureStatuses(report guttesting.Report) []FeatureStatus {
 		},
 	)
 	return statuses
+}
+
+func availableFeatureStatus(id string, reason string) FeatureStatus {
+	return FeatureStatus{
+		ID:           id,
+		Availability: string(common.AvailabilityAvailable),
+		Reason:       reason,
+	}
+}
+
+func unavailableFeatureStatus(id string, reason string) FeatureStatus {
+	return FeatureStatus{
+		ID:           id,
+		Availability: string(common.AvailabilityUnavailable),
+		Reason:       reason,
+	}
+}
+
+func toolStatusFromCapability(id string, status common.CapabilityStatus, availableReason string) FeatureStatus {
+	if status.Availability == common.AvailabilityAvailable {
+		return availableFeatureStatus(id, availableReason)
+	}
+
+	reason := fmt.Sprintf("native %s is %s", status.Capability, status.Availability)
+	if status.Reason != "" {
+		reason += ": " + status.Reason
+	}
+	return unavailableFeatureStatus(id, reason)
 }
 
 func (s *Service) timeout(valueMS int, fallback time.Duration) time.Duration {

@@ -27,7 +27,7 @@ dev_mode:
       type: background
     - cmd: go mod tidy
       type: blocking
-    - cmd: wails3 task windows:build
+    - cmd: env MACOSX_DEPLOYMENT_TARGET=14.0 go build -o build/bin/gutgd .
       type: blocking
-    - cmd: wails3 task run
+    - cmd: env MACOSX_DEPLOYMENT_TARGET=14.0 go run .
       type: primary

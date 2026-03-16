@@ -3,6 +3,7 @@ version: '3'
 includes:
   common: ./build/Taskfile.yml
   windows: ./build/windows/Taskfile.yml
+  darwin: ./build/darwin/Taskfile.yml
 
 vars:
   APP_NAME: "gutgd"
@@ -11,14 +12,11 @@ vars:
 tasks:
   build:
     cmds:
-      - task: common:install:frontend:deps
-      - task: common:generate:bindings
-      - task: common:build:frontend
-      - task: windows:build
+      - task: "{{OS}}:build"
 
   run:
     cmds:
-      - task: windows:run
+      - task: "{{OS}}:run"
 
   dev:
     cmds:

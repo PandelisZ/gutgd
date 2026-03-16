@@ -312,58 +312,275 @@ select {
   color: #aea49d;
 }
 
-.gutgd-agentShell {
-  align-items: start;
+.gutgd-agentSettingsCard {
+  background:
+    radial-gradient(circle at 0% 0%, rgba(68, 169, 255, 0.08), transparent 34%),
+    linear-gradient(180deg, rgba(45, 37, 34, 0.96), rgba(37, 30, 28, 0.94));
 }
 
-.gutgd-chatTranscript {
+.gutgd-agentShell {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  min-height: 0;
+  height: 100%;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(68, 169, 255, 0.08), transparent 28%),
+    linear-gradient(180deg, rgba(45, 37, 34, 0.96), rgba(29, 24, 22, 0.96));
+  align-items: stretch;
+}
+
+.gutgd-agentPage {
+  min-height: calc(100vh - 11.5rem);
+  grid-template-rows: auto minmax(0, 1fr);
+  align-items: stretch;
+  gap: 1rem;
+}
+
+.gutgd-agentPage > * {
+  min-height: 0;
+}
+
+.gutgd-agentFeedback {
   display: grid;
   gap: 0.8rem;
-  max-height: 420px;
-  overflow: auto;
-  padding: 0.2rem;
+  margin-top: 0.95rem;
 }
 
-.gutgd-chatMessage {
-  padding: 0.9rem 1rem;
-  border-radius: 16px;
+.gutgd-agentMetaChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.gutgd-agentChip {
+  display: inline-grid;
+  gap: 0.16rem;
+  min-width: 120px;
+  padding: 0.65rem 0.8rem;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.gutgd-agentChip strong {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #aea49d;
+}
+
+.gutgd-agentChip span {
+  color: #f5f5f5;
+}
+
+.gutgd-agentChip-live {
+  border-color: rgba(68, 169, 255, 0.35);
+  background: rgba(68, 169, 255, 0.1);
+}
+
+.gutgd-agentNotice {
+  padding: 0.8rem 0.9rem;
+  border-radius: 14px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(255, 255, 255, 0.03);
 }
 
+.gutgd-agentErrorBlock {
+  max-height: 140px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: rgba(120, 18, 18, 0.16);
+  border-color: rgba(255, 112, 112, 0.24);
+}
+
+.gutgd-agentIntro {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: end;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.gutgd-agentBody {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 0.9rem;
+}
+
+.gutgd-chatTranscript {
+  display: grid;
+  gap: 0.65rem;
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
+  padding: 0.45rem;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background:
+    linear-gradient(180deg, rgba(15, 14, 14, 0.18), rgba(15, 14, 14, 0.28)),
+    rgba(255, 255, 255, 0.02);
+  align-content: start;
+}
+
+.gutgd-chatMessage {
+  width: min(100%, 54rem);
+  padding: 0.72rem 0.88rem;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.gutgd-chatEmptyState {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  gap: 0.9rem;
+  padding: 2rem 1rem;
+  text-align: center;
+}
+
+.gutgd-chatEmptyState strong {
+  display: block;
+  margin-bottom: 0.4rem;
+  color: #f5f5f5;
+  font-size: 1rem;
+}
+
+.gutgd-chatEmptyState p {
+  margin: 0;
+  max-width: 34rem;
+  color: #cfc6c0;
+}
+
+.gutgd-chatEmptyGlyph {
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 72px;
+  border-radius: 22px;
+  border: 1px solid rgba(68, 169, 255, 0.24);
+  background: rgba(68, 169, 255, 0.08);
+  color: #44a9ff;
+  font-size: 1.8rem;
+}
+
 .gutgd-chatMessage header {
-  margin-bottom: 0.35rem;
-  font-size: 0.8rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 0.14rem;
+  font-size: 0.64rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  color: #cfc6c0;
 }
 
 .gutgd-chatMessage p {
   margin: 0;
-  line-height: 1.45;
+  line-height: 1.5;
+}
+
+.gutgd-chatMessage code {
+  padding: 0.12rem 0.34rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #9bd0ff;
+  font-size: 0.68rem;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.gutgd-chatMetaRow,
+.gutgd-chatMetaBlock {
+  display: grid;
+  gap: 0.18rem;
+  margin-top: 0.22rem;
+}
+
+.gutgd-chatMetaRow {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 0.38rem;
+}
+
+.gutgd-chatMetaLabel {
+  color: #aea49d;
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.gutgd-chatInlinePayload {
+  width: fit-content;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: 8px;
+  background: rgba(11, 10, 10, 0.26);
+  color: #ddd4ce;
+  font-family: Consolas, "SFMono-Regular", monospace;
+  font-size: 0.74rem;
+}
+
+.gutgd-chatPayload {
+  min-height: 0;
+  max-height: 140px;
+  margin: 0;
+  padding: 0.42rem 0.52rem;
+  border-radius: 10px;
+  font-size: 0.74rem;
+}
+
+.gutgd-chatComposer {
+  display: grid;
+  gap: 0.7rem;
+  padding: 1rem;
+  border-radius: 18px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, rgba(37, 30, 28, 0.8), rgba(37, 30, 28, 0.96) 22%);
+}
+
+.gutgd-chatComposerHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.gutgd-chatComposerHeader strong {
+  display: block;
+  margin-bottom: 0.25rem;
+}
+
+.gutgd-chatComposerHeader p {
+  margin: 0;
+  color: #cfc6c0;
 }
 
 .gutgd-chatMessage-user {
   border-color: rgba(68, 169, 255, 0.24);
+  background: rgba(68, 169, 255, 0.08);
+  justify-self: end;
 }
 
 .gutgd-chatMessage-assistant {
   border-color: rgba(255, 255, 255, 0.08);
+  justify-self: start;
 }
 
 .gutgd-chatMessage-tool {
-  border-color: rgba(68, 169, 255, 0.2);
+  border-color: rgba(68, 169, 255, 0.18);
   background: rgba(68, 169, 255, 0.06);
-}
-
-.gutgd-toolEventMeta {
-  display: grid;
-  gap: 0.8rem;
-}
-
-.gutgd-toolEventMeta strong {
-  display: block;
+  justify-self: start;
 }
 
 .gutgd-statusNote {
@@ -384,6 +601,11 @@ select {
   .gutgd-hero,
   .gutgd-rowCard {
     grid-template-columns: 1fr;
+  }
+
+  .gutgd-agentIntro {
+    grid-template-columns: 1fr;
+    align-items: flex-start;
   }
 }
 
@@ -407,6 +629,11 @@ select {
   .gutgd-topbar {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .gutgd-chatComposerHeader {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .gutgd-grid2,

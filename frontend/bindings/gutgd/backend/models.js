@@ -93,6 +93,20 @@ export class AgentChatRequest {
              */
             this["messages"] = [];
         }
+        if (!("previous_response_id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["previous_response_id"] = "";
+        }
+        if (!("client_run_id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["client_run_id"] = "";
+        }
 
         Object.assign(this, $$source);
     }
@@ -132,6 +146,13 @@ export class AgentChatResponse {
              */
             this["tool_events"] = [];
         }
+        if (!("items" in $$source)) {
+            /**
+             * @member
+             * @type {AgentTranscriptItem[]}
+             */
+            this["items"] = [];
+        }
         if (!("response_id" in $$source)) {
             /**
              * @member
@@ -158,7 +179,8 @@ export class AgentChatResponse {
     static createFrom($$source = {}) {
         const $$createField0_0 = $$createType0;
         const $$createField1_0 = $$createType3;
-        const $$createField3_0 = $$createType4;
+        const $$createField2_0 = $$createType5;
+        const $$createField4_0 = $$createType6;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("message" in $$parsedSource) {
             $$parsedSource["message"] = $$createField0_0($$parsedSource["message"]);
@@ -166,8 +188,11 @@ export class AgentChatResponse {
         if ("tool_events" in $$parsedSource) {
             $$parsedSource["tool_events"] = $$createField1_0($$parsedSource["tool_events"]);
         }
+        if ("items" in $$parsedSource) {
+            $$parsedSource["items"] = $$createField2_0($$parsedSource["items"]);
+        }
         if ("usage" in $$parsedSource) {
-            $$parsedSource["usage"] = $$createField3_0($$parsedSource["usage"]);
+            $$parsedSource["usage"] = $$createField4_0($$parsedSource["usage"]);
         }
         return new AgentChatResponse(/** @type {Partial<AgentChatResponse>} */($$parsedSource));
     }
@@ -306,6 +331,83 @@ export class AgentToolEvent {
     }
 }
 
+export class AgentTranscriptItem {
+    /**
+     * Creates a new AgentTranscriptItem instance.
+     * @param {Partial<AgentTranscriptItem>} [$$source = {}] - The source object to create the AgentTranscriptItem.
+     */
+    constructor($$source = {}) {
+        if (!("kind" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["kind"] = "";
+        }
+        if (!("role" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["role"] = "";
+        }
+        if (!("name" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["name"] = "";
+        }
+        if (!("call_id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["call_id"] = "";
+        }
+        if (!("content" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["content"] = "";
+        }
+        if (!("arguments" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["arguments"] = "";
+        }
+        if (!("output" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["output"] = "";
+        }
+        if (!("error" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["error"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AgentTranscriptItem instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {AgentTranscriptItem}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new AgentTranscriptItem(/** @type {Partial<AgentTranscriptItem>} */($$parsedSource));
+    }
+}
+
 export class AgentUsage {
     /**
      * Creates a new AgentUsage instance.
@@ -385,7 +487,7 @@ export class CaptureRegionRequest {
      * @returns {CaptureRegionRequest}
      */
     static createFrom($$source = {}) {
-        const $$createField1_0 = $$createType5;
+        const $$createField1_0 = $$createType7;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("region" in $$parsedSource) {
             $$parsedSource["region"] = $$createField1_0($$parsedSource["region"]);
@@ -442,6 +544,20 @@ export class CaptureResult {
              */
             this["message"] = "";
         }
+        if (!("offset" in $$source)) {
+            /**
+             * @member
+             * @type {Point}
+             */
+            this["offset"] = (new Point());
+        }
+        if (!("scale" in $$source)) {
+            /**
+             * @member
+             * @type {Scale}
+             */
+            this["scale"] = (new Scale());
+        }
 
         Object.assign(this, $$source);
     }
@@ -452,7 +568,15 @@ export class CaptureResult {
      * @returns {CaptureResult}
      */
     static createFrom($$source = {}) {
+        const $$createField2_0 = $$createType8;
+        const $$createField3_0 = $$createType9;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("offset" in $$parsedSource) {
+            $$parsedSource["offset"] = $$createField2_0($$parsedSource["offset"]);
+        }
+        if ("scale" in $$parsedSource) {
+            $$parsedSource["scale"] = $$createField3_0($$parsedSource["scale"]);
+        }
         return new CaptureResult(/** @type {Partial<CaptureResult>} */($$parsedSource));
     }
 }
@@ -634,8 +758,8 @@ export class ColorPointResult {
      * @returns {ColorPointResult}
      */
     static createFrom($$source = {}) {
-        const $$createField0_0 = $$createType6;
-        const $$createField1_0 = $$createType7;
+        const $$createField0_0 = $$createType8;
+        const $$createField1_0 = $$createType10;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("point" in $$parsedSource) {
             $$parsedSource["point"] = $$createField0_0($$parsedSource["point"]);
@@ -712,7 +836,7 @@ export class ColorQueryRequest {
      * @returns {ColorQueryRequest}
      */
     static createFrom($$source = {}) {
-        const $$createField4_0 = $$createType8;
+        const $$createField4_0 = $$createType11;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("region" in $$parsedSource) {
             $$parsedSource["region"] = $$createField4_0($$parsedSource["region"]);
@@ -772,8 +896,8 @@ export class DiagnosticsResponse {
      * @returns {DiagnosticsResponse}
      */
     static createFrom($$source = {}) {
-        const $$createField0_0 = $$createType9;
-        const $$createField1_0 = $$createType11;
+        const $$createField0_0 = $$createType12;
+        const $$createField1_0 = $$createType14;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("report" in $$parsedSource) {
             $$parsedSource["report"] = $$createField0_0($$parsedSource["report"]);
@@ -857,12 +981,47 @@ export class KeyboardKeysRequest {
      * @returns {KeyboardKeysRequest}
      */
     static createFrom($$source = {}) {
-        const $$createField0_0 = $$createType12;
+        const $$createField0_0 = $$createType15;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("keys" in $$parsedSource) {
             $$parsedSource["keys"] = $$createField0_0($$parsedSource["keys"]);
         }
         return new KeyboardKeysRequest(/** @type {Partial<KeyboardKeysRequest>} */($$parsedSource));
+    }
+}
+
+export class KeyboardSpecialKeyRequest {
+    /**
+     * Creates a new KeyboardSpecialKeyRequest instance.
+     * @param {Partial<KeyboardSpecialKeyRequest>} [$$source = {}] - The source object to create the KeyboardSpecialKeyRequest.
+     */
+    constructor($$source = {}) {
+        if (!("key" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["key"] = "";
+        }
+        if (!("repeat_count" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["repeat_count"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new KeyboardSpecialKeyRequest instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {KeyboardSpecialKeyRequest}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new KeyboardSpecialKeyRequest(/** @type {Partial<KeyboardSpecialKeyRequest>} */($$parsedSource));
     }
 }
 
@@ -1251,6 +1410,41 @@ export class Region {
     }
 }
 
+export class Scale {
+    /**
+     * Creates a new Scale instance.
+     * @param {Partial<Scale>} [$$source = {}] - The source object to create the Scale.
+     */
+    constructor($$source = {}) {
+        if (!("x" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["x"] = 0;
+        }
+        if (!("y" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["y"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Scale instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {Scale}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new Scale(/** @type {Partial<Scale>} */($$parsedSource));
+    }
+}
+
 export class ScreenSizeResult {
     /**
      * Creates a new ScreenSizeResult instance.
@@ -1484,7 +1678,7 @@ export class WindowSummary {
      * @returns {WindowSummary}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType5;
+        const $$createField2_0 = $$createType7;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("region" in $$parsedSource) {
             $$parsedSource["region"] = $$createField2_0($$parsedSource["region"]);
@@ -1498,12 +1692,15 @@ const $$createType0 = AgentChatMessage.createFrom;
 const $$createType1 = $Create.Array($$createType0);
 const $$createType2 = AgentToolEvent.createFrom;
 const $$createType3 = $Create.Array($$createType2);
-const $$createType4 = AgentUsage.createFrom;
-const $$createType5 = Region.createFrom;
-const $$createType6 = Point.createFrom;
-const $$createType7 = Color.createFrom;
-const $$createType8 = $Create.Nullable($$createType5);
-const $$createType9 = guttesting$0.EnvironmentReport.createFrom;
-const $$createType10 = FeatureStatus.createFrom;
-const $$createType11 = $Create.Array($$createType10);
-const $$createType12 = $Create.Array($Create.Any);
+const $$createType4 = AgentTranscriptItem.createFrom;
+const $$createType5 = $Create.Array($$createType4);
+const $$createType6 = AgentUsage.createFrom;
+const $$createType7 = Region.createFrom;
+const $$createType8 = Point.createFrom;
+const $$createType9 = Scale.createFrom;
+const $$createType10 = Color.createFrom;
+const $$createType11 = $Create.Nullable($$createType7);
+const $$createType12 = guttesting$0.EnvironmentReport.createFrom;
+const $$createType13 = FeatureStatus.createFrom;
+const $$createType14 = $Create.Array($$createType13);
+const $$createType15 = $Create.Array($Create.Any);

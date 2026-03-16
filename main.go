@@ -30,6 +30,9 @@ func main() {
 			application.NewService(service),
 		},
 	})
+	service.SetEventEmitter(func(name string, data any) {
+		app.Event.Emit(name, data)
+	})
 
 	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:            "gutgd",
@@ -38,7 +41,7 @@ func main() {
 		MinWidth:         1180,
 		MinHeight:        760,
 		BackgroundColour: application.NewRGB(17, 24, 39),
-		URL:              "http://wails.localhost/",
+		URL:              "/",
 	})
 	window.Show()
 

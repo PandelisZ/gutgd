@@ -282,6 +282,16 @@ export function PressKeys(req) {
 }
 
 /**
+ * @param {$models.KeyboardSpecialKeyRequest} req
+ * @returns {$CancellablePromise<$models.ActionResult>}
+ */
+export function PressSpecialKey(req) {
+    return $Call.ByID(3576986753, req).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType0($result);
+    }));
+}
+
+/**
  * @param {$models.KeyboardKeysRequest} req
  * @returns {$CancellablePromise<$models.ActionResult>}
  */
@@ -329,6 +339,14 @@ export function ScrollMouse(req) {
     return $Call.ByID(2159489636, req).then(/** @type {($result: any) => any} */(($result) => {
         return $$createType0($result);
     }));
+}
+
+/**
+ * @param {any} emit
+ * @returns {$CancellablePromise<void>}
+ */
+export function SetEventEmitter(emit) {
+    return $Call.ByID(636946090, emit);
 }
 
 /**

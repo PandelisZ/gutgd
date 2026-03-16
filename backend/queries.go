@@ -3,6 +3,7 @@ package backend
 import (
 	"fmt"
 	"regexp"
+	"runtime"
 	"strings"
 
 	"gut/shared"
@@ -118,10 +119,25 @@ func parseKey(value string) (shared.Key, error) {
 		}
 	}
 
+	if key, ok := metaAliasKey(normalized); ok {
+		return key, nil
+	}
 	if key, ok := namedKeys[normalized]; ok {
 		return key, nil
 	}
 	return 0, fmt.Errorf("unsupported key %q", value)
+}
+
+func metaAliasKey(value string) (shared.Key, bool) {
+	switch value {
+	case "meta", "super", "cmd", "command":
+		if runtime.GOOS == "darwin" {
+			return shared.KeyLeftCmd, true
+		}
+		return shared.KeyLeftWin, true
+	default:
+		return 0, false
+	}
 }
 
 var namedKeys = map[string]shared.Key{
@@ -152,7 +168,6 @@ var namedKeys = map[string]shared.Key{
 	"leftalt":        shared.KeyLeftAlt,
 	"leftctrl":       shared.KeyLeftControl,
 	"leftshift":      shared.KeyLeftShift,
-	"meta":           shared.KeyLeftWin,
 	"minus":          shared.KeyMinus,
 	"pagedown":       shared.KeyPageDown,
 	"pageup":         shared.KeyPageUp,
@@ -163,7 +178,6 @@ var namedKeys = map[string]shared.Key{
 	"rightalt":       shared.KeyRightAlt,
 	"rightctrl":      shared.KeyRightControl,
 	"rightshift":     shared.KeyRightShift,
-	"super":          shared.KeyLeftWin,
 	"semicolon":      shared.KeySemicolon,
 	"shift":          shared.KeyLeftShift,
 	"slash":          shared.KeySlash,
@@ -171,8 +185,6 @@ var namedKeys = map[string]shared.Key{
 	"tab":            shared.KeyTab,
 	"up":             shared.KeyUp,
 	"win":            shared.KeyLeftWin,
-	"cmd":            shared.KeyLeftWin,
-	"command":        shared.KeyLeftWin,
 	"leftwin":        shared.KeyLeftWin,
 	"rightwin":       shared.KeyRightWin,
 }
