@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import PageHeader from '../components/PageHeader'
 import Panel from '../components/Panel'
 import ResultPane from '../components/ResultPane'
+import { formatPayload } from '../lib/format'
 import { api } from '../lib/api'
 
 export default function AgentView() {
@@ -14,7 +15,9 @@ export default function AgentView() {
   const [systemPrompt, setSystemPrompt] = useState('')
   const [message, setMessage] = useState('List the active window title and current mouse position.')
   const [messages, setMessages] = useState([])
+  const [timeline, setTimeline] = useState([])
   const [toolEvents, setToolEvents] = useState([])
+  const [responseID, setResponseID] = useState('')
   const [status, setStatus] = useState('')
   const [loadingSettings, setLoadingSettings] = useState(true)
   const [savingSettings, setSavingSettings] = useState(false)
@@ -71,21 +74,30 @@ export default function AgentView() {
       return
     }
 
-    const nextMessages = [...messages, { role: 'user', content }]
-    setMessages(nextMessages)
+    const userMessage = { role: 'user', content }
+    setMessages((current) => [...current, userMessage])
+    setTimeline((current) => [...current, { kind: 'message', role: 'user', content }])
     setMessage('')
     setSending(true)
     setError('')
     setStatus('')
 
     try {
-      const result = await api.chatWithAgent({ messages: nextMessages })
+      const result = await api.chatWithAgent({
+        messages: [userMessage],
+        previous_response_id: responseID
+      })
       const assistant = result.message || { role: 'assistant', content: '' }
-      setMessages([...nextMessages, assistant])
-      setToolEvents(result.tool_events || [])
+      setMessages((current) => [...current, assistant])
+      setTimeline((current) => [...current, ...(result.items || []), assistant.content ? {
+        kind: 'message',
+        role: 'assistant',
+        content: assistant.content
+      } : []].flat())
+      setToolEvents((current) => [...current, ...(result.tool_events || [])])
       setRawResponse(result)
+      setResponseID(result.response_id || '')
     } catch (nextError) {
-      setMessages(nextMessages)
       setError(nextError.message || String(nextError))
     } finally {
       setSending(false)
@@ -150,12 +162,30 @@ export default function AgentView() {
           <div className="gutgd-rowBody">
             <div className="gutgd-chatTranscript" aria-label="Conversation transcript">
               {messages.map((item, index) => (
-                <article key={`${item.role}-${index}`} className={`gutgd-chatMessage gutgd-chatMessage-${item.role}`}>
-                  <header>{item.role}</header>
-                  <p>{item.content}</p>
+                null
+              ))}
+              {timeline.map((item, index) => (
+                <article key={`${item.kind}-${item.call_id || item.role}-${index}`} className={`gutgd-chatMessage gutgd-chatMessage-${item.kind === 'message' ? item.role : 'tool'}`}>
+                  {item.kind === 'message' ? (
+                    <>
+                      <header>{item.role}</header>
+                      <p>{item.content}</p>
+                    </>
+                  ) : item.kind === 'tool_call' ? (
+                    <>
+                      <header>tool call · {item.name}</header>
+                      <pre className="gutgd-output gutgd-outputCompact">{formatPayload(parseStructuredValue(item.arguments, {}))}</pre>
+                    </>
+                  ) : (
+                    <>
+                      <header>tool output · {item.name}</header>
+                      {item.error ? <p>{item.error}</p> : null}
+                      <pre className="gutgd-output gutgd-outputCompact">{formatPayload(parseStructuredValue(item.output, item.output || ''))}</pre>
+                    </>
+                  )}
                 </article>
               ))}
-              {!messages.length ? <div className="gutgd-empty">No messages yet.</div> : null}
+              {!timeline.length ? <div className="gutgd-empty">No messages yet.</div> : null}
             </div>
 
             <Field label="Message">
@@ -168,8 +198,10 @@ export default function AgentView() {
               </Button>
               <Button onClick={() => {
                 setMessages([])
+                setTimeline([])
                 setToolEvents([])
                 setRawResponse('')
+                setResponseID('')
                 setError('')
                 setStatus('')
               }}>
@@ -179,7 +211,7 @@ export default function AgentView() {
           </div>
         </section>
 
-        <Panel title="Tool events" description="Latest tool calls and outputs from the model run.">
+        <Panel title="Tool events" description="Latest tool calls and outputs from the current conversation.">
           <div className="gutgd-featureList">
             {toolEvents.map((item) => (
               <article key={`${item.call_id}-${item.name}`} className="gutgd-featureItem">
@@ -187,9 +219,22 @@ export default function AgentView() {
                   <strong>{item.name}</strong>
                   <span>{item.call_id}</span>
                 </header>
-                <p><strong>Arguments:</strong> {item.arguments || '{}'}</p>
-                {item.error ? <p><strong>Error:</strong> {item.error}</p> : null}
-                <pre className="gutgd-output">{item.output || ''}</pre>
+                <div className="gutgd-toolEventMeta">
+                  <div>
+                    <strong>Arguments</strong>
+                    <pre className="gutgd-output gutgd-outputCompact">{formatPayload(parseStructuredValue(item.arguments, {}))}</pre>
+                  </div>
+                  {item.error ? (
+                    <div>
+                      <strong>Error</strong>
+                      <pre className="gutgd-output gutgd-outputCompact">{item.error}</pre>
+                    </div>
+                  ) : null}
+                  <div>
+                    <strong>Output</strong>
+                    <pre className="gutgd-output gutgd-outputCompact">{item.output || ''}</pre>
+                  </div>
+                </div>
               </article>
             ))}
             {!toolEvents.length ? <div className="gutgd-empty">No tool calls yet.</div> : null}
@@ -202,4 +247,15 @@ export default function AgentView() {
       </div>
     </>
   )
+}
+
+function parseStructuredValue(value, fallback) {
+  if (!value) {
+    return fallback
+  }
+  try {
+    return JSON.parse(value)
+  } catch {
+    return value
+  }
 }

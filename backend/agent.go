@@ -32,7 +32,8 @@ type AgentChatMessage struct {
 }
 
 type AgentChatRequest struct {
-	Messages []AgentChatMessage `json:"messages"`
+	Messages           []AgentChatMessage `json:"messages"`
+	PreviousResponseID string             `json:"previous_response_id"`
 }
 
 type AgentToolEvent struct {
@@ -51,10 +52,22 @@ type AgentUsage struct {
 }
 
 type AgentChatResponse struct {
-	Message    AgentChatMessage `json:"message"`
-	ToolEvents []AgentToolEvent `json:"tool_events"`
-	ResponseID string           `json:"response_id"`
-	Usage      AgentUsage       `json:"usage"`
+	Message    AgentChatMessage      `json:"message"`
+	ToolEvents []AgentToolEvent      `json:"tool_events"`
+	Items      []AgentTranscriptItem `json:"items"`
+	ResponseID string                `json:"response_id"`
+	Usage      AgentUsage            `json:"usage"`
+}
+
+type AgentTranscriptItem struct {
+	Kind      string `json:"kind"`
+	Role      string `json:"role"`
+	Name      string `json:"name"`
+	CallID    string `json:"call_id"`
+	Content   string `json:"content"`
+	Arguments string `json:"arguments"`
+	Output    string `json:"output"`
+	Error     string `json:"error"`
 }
 
 type AgentModelOption struct {
@@ -143,26 +156,45 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	response, err := client.Responses.New(ctx, responses.ResponseNewParams{
+	params := responses.ResponseNewParams{
 		Instructions: openai.String(instructions),
 		Model:        openai.ChatModel(settings.Model),
 		Input: responses.ResponseNewParamsInputUnion{
 			OfInputItemList: inputItems,
 		},
 		ParallelToolCalls: openai.Bool(true),
+		Include:           []responses.ResponseIncludable{responses.ResponseIncludableReasoningEncryptedContent},
 		Reasoning:         reasoningParam(settings.ReasoningEffort),
 		Tools:             s.agentToolParams(tools),
-	})
+	}
+	if previousResponseID := strings.TrimSpace(req.PreviousResponseID); previousResponseID != "" {
+		params.PreviousResponseID = openai.String(previousResponseID)
+	}
+
+	response, err := client.Responses.New(ctx, params)
 	if err != nil {
 		return AgentChatResponse{}, err
 	}
 
 	toolEvents := make([]AgentToolEvent, 0)
+	transcriptItems := make([]AgentTranscriptItem, 0)
 	for step := 0; step < maxAgentSteps; step++ {
 		outputs := make([]responses.ResponseInputItemUnionParam, 0)
 		functionCalls := 0
 
 		for _, item := range response.Output {
+			if item.Type == "message" {
+				message := item.AsMessage()
+				text := strings.TrimSpace(outputMessageText(message))
+				if text != "" {
+					transcriptItems = append(transcriptItems, AgentTranscriptItem{
+						Kind:    "message",
+						Role:    "assistant",
+						Content: text,
+					})
+				}
+			}
+
 			if item.Type != "function_call" {
 				continue
 			}
@@ -171,16 +203,36 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 			call := item.AsFunctionCall()
 			output, event := runAgentTool(tools, call.Name, call.Arguments, call.CallID)
 			toolEvents = append(toolEvents, event)
+			transcriptItems = append(transcriptItems,
+				AgentTranscriptItem{
+					Kind:      "tool_call",
+					Name:      call.Name,
+					CallID:    call.CallID,
+					Arguments: call.Arguments,
+				},
+				AgentTranscriptItem{
+					Kind:   "tool_output",
+					Name:   call.Name,
+					CallID: call.CallID,
+					Output: output,
+					Error:  event.Error,
+				},
+			)
 			outputs = append(outputs, responses.ResponseInputItemParamOfFunctionCallOutput(call.CallID, output))
 		}
 
 		if functionCalls == 0 {
+			finalMessage := strings.TrimSpace(response.OutputText())
+			if finalMessage == "" {
+				finalMessage = latestAssistantMessage(transcriptItems)
+			}
 			return AgentChatResponse{
 				Message: AgentChatMessage{
 					Role:    "assistant",
-					Content: strings.TrimSpace(response.OutputText()),
+					Content: finalMessage,
 				},
 				ToolEvents: toolEvents,
+				Items:      transcriptItems,
 				ResponseID: response.ID,
 				Usage: AgentUsage{
 					InputTokens:     response.Usage.InputTokens,
@@ -198,6 +250,7 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 			Input: responses.ResponseNewParamsInputUnion{
 				OfInputItemList: outputs,
 			},
+			Include:   []responses.ResponseIncludable{responses.ResponseIncludableReasoningEncryptedContent},
 			Reasoning: reasoningParam(settings.ReasoningEffort),
 		})
 		if err != nil {
@@ -225,20 +278,6 @@ func (s *Service) agentToolParams(tools []agentTool) []responses.ToolUnionParam 
 
 func (s *Service) agentTools() []agentTool {
 	return []agentTool{
-		{
-			Name:        "get_diagnostics",
-			Description: "Inspect backend readiness, platform details, and capability availability.",
-			Parameters:  objectSchema(map[string]any{"mutable": boolSchema("Whether to request mutable evaluation gates.")}),
-			Run: func(raw string) (any, error) {
-				var payload struct {
-					Mutable bool `json:"mutable"`
-				}
-				if err := decodeToolArgs(raw, &payload); err != nil {
-					return nil, err
-				}
-				return s.GetDiagnostics(payload.Mutable)
-			},
-		},
 		{
 			Name:        "type_text",
 			Description: "Type plain text into the currently focused application.",
@@ -684,7 +723,39 @@ func agentDeveloperPrompt() string {
 Use the provided tools whenever the user asks you to inspect or control the desktop environment.
 Prefer the smallest number of tool calls needed to satisfy the request.
 Summarize what you did, include notable tool results, and be explicit when the native backend reports an unsupported capability.
+Do not treat GUT_ENABLE_LIVE_TESTS or the diagnostics field live_enabled as a blocker for normal gutgd actions. Those fields belong to the separate gut live-test harness. In gutgd, use the actual tool call result and the feature_status/capability availability to decide whether an action is possible.
+When continuing an existing conversation through previous_response_id, rely on the server-side conversation state rather than asking the user to resend old turns.
+Never print pseudo tool-call syntax such as "to=functions.*", JSON envelopes, or planning text in place of an actual tool call. If you need a tool, call it through the Responses function tool interface.
+If multiple independent tool calls are needed in the same step, issue real parallel function calls rather than describing them in text.
+Use common key aliases naturally: meta, super, cmd, and command all mean the Windows key in this environment.
+Do not narrate that you are about to call a tool. Call the tool first, then describe the result after the tool outputs are available.
 Do not invent tool results.`)
+}
+
+func latestAssistantMessage(items []AgentTranscriptItem) string {
+	for index := len(items) - 1; index >= 0; index-- {
+		if items[index].Kind == "message" && items[index].Role == "assistant" {
+			return items[index].Content
+		}
+	}
+	return ""
+}
+
+func outputMessageText(message responses.ResponseOutputMessage) string {
+	parts := make([]string, 0, len(message.Content))
+	for _, content := range message.Content {
+		switch content.Type {
+		case "output_text":
+			if text := strings.TrimSpace(content.Text); text != "" {
+				parts = append(parts, text)
+			}
+		case "refusal":
+			if refusal := strings.TrimSpace(content.Refusal); refusal != "" {
+				parts = append(parts, refusal)
+			}
+		}
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 func combineInstructions(systemPrompt string) string {
@@ -698,17 +769,17 @@ func combineInstructions(systemPrompt string) string {
 func reasoningParam(value string) shared.ReasoningParam {
 	switch normalizeReasoningEffort(value) {
 	case "none":
-		return shared.ReasoningParam{Effort: shared.ReasoningEffortNone}
+		return shared.ReasoningParam{Effort: shared.ReasoningEffortNone, Summary: shared.ReasoningSummaryAuto}
 	case "minimal":
-		return shared.ReasoningParam{Effort: shared.ReasoningEffortMinimal}
+		return shared.ReasoningParam{Effort: shared.ReasoningEffortMinimal, Summary: shared.ReasoningSummaryAuto}
 	case "low":
-		return shared.ReasoningParam{Effort: shared.ReasoningEffortLow}
+		return shared.ReasoningParam{Effort: shared.ReasoningEffortLow, Summary: shared.ReasoningSummaryAuto}
 	case "high":
-		return shared.ReasoningParam{Effort: shared.ReasoningEffortHigh}
+		return shared.ReasoningParam{Effort: shared.ReasoningEffortHigh, Summary: shared.ReasoningSummaryAuto}
 	case "xhigh":
-		return shared.ReasoningParam{Effort: shared.ReasoningEffortXhigh}
+		return shared.ReasoningParam{Effort: shared.ReasoningEffortXhigh, Summary: shared.ReasoningSummaryAuto}
 	default:
-		return shared.ReasoningParam{Effort: shared.ReasoningEffortMedium}
+		return shared.ReasoningParam{Effort: shared.ReasoningEffortMedium, Summary: shared.ReasoningSummaryAuto}
 	}
 }
 
