@@ -20,6 +20,7 @@ export const Availability = {
     AvailabilityUnavailable: "unavailable",
     AvailabilityStubbed: "stubbed",
     AvailabilityUnsupported: "unsupported",
+    AvailabilityPermissionBlocked: "permission_blocked",
 };
 
 /**
@@ -57,6 +58,14 @@ export const Capability = {
     CapabilityWindowRestore: "window.restore",
     CapabilityX11DisplayGet: "x11.display.get",
     CapabilityX11DisplaySet: "x11.display.set",
+    CapabilityPermissionReadiness: "permissions.readiness",
+    CapabilityAXFocusedWindowMetadata: "ax.window.focused",
+    CapabilityAXFocusedElementMetadata: "ax.element.focused",
+    CapabilityAXElementAtPointMetadata: "ax.element.at_point",
+    CapabilityAXFocusedWindowRaise: "ax.window.raise.focused",
+    CapabilityAXFocusedElementAction: "ax.element.action.focused",
+    CapabilityAXElementActionAtPoint: "ax.element.action.at_point",
+    CapabilityAXElementFocusAtPoint: "ax.element.focus.at_point",
 };
 
 export class CapabilityStatus {

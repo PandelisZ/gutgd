@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -13,6 +14,9 @@ import (
 	"strings"
 	"time"
 
+	"gut/native/common"
+
+	lua "github.com/Shopify/go-lua"
 	openai "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/responses"
@@ -22,9 +26,17 @@ import (
 const (
 	defaultAgentModel = "gpt-5.4"
 	maxAgentSteps     = 8
-	maxAgentContinues = 3
 	continueMessage   = "continue"
 )
+
+const defaultAgentSystemPrompt = `Work methodically and keep a compact running execution plan.
+
+Prefer the smallest next action that increases certainty.
+Keep track of what already worked, what failed, and what still needs verification.
+When working visually, ground actions with captures and verification instead of guessing.
+Before high-risk clicks or typing into the wrong place, confirm focus and target first.
+After completing a meaningful sub-goal, verify the UI changed as expected before moving on.
+If the task is long-running, maintain a short plan and todo list that reflect the current state rather than restarting from scratch.`
 
 type AgentSettings struct {
 	APIKey          string `json:"api_key"`
@@ -104,6 +116,24 @@ type AnalyzeScreenshotResult struct {
 	Offset   Point  `json:"offset"`
 	Scale    Scale  `json:"scale"`
 	Analysis string `json:"analysis"`
+}
+
+type TranslateImagePointToScreenRequest struct {
+	Path string `json:"path"`
+	X    int    `json:"x"`
+	Y    int    `json:"y"`
+}
+
+type AgentImageLoadResult struct {
+	Path    string `json:"path"`
+	Message string `json:"message"`
+}
+
+type AgentLuaScriptResult struct {
+	Script    string `json:"script"`
+	ToolCalls int    `json:"tool_calls"`
+	Result    any    `json:"result"`
+	Message   string `json:"message"`
 }
 
 type AgentCoordinateSpace struct {
@@ -199,6 +229,7 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 	coordinateState := s.loadAgentCoordinateState(req.PreviousResponseID)
 	tools := s.agentToolsWithState(coordinateState)
 	instructions := combineInstructions(settings.SystemPrompt)
+	userRequest := latestUserRequestText(req.Messages)
 	inputItems := make([]responses.ResponseInputItemUnionParam, 0, len(req.Messages))
 	for _, message := range req.Messages {
 		role := normalizeAgentRole(message.Role)
@@ -227,7 +258,7 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 		Instructions: openai.String(instructions),
 		Model:        openai.ChatModel(settings.Model),
 		Input: responses.ResponseNewParamsInputUnion{
-			OfInputItemList: inputItems,
+			OfInputItemList: prependAgentScaffold(agentLoopScaffold(userRequest, nil, coordinateState), inputItems...),
 		},
 		ParallelToolCalls: openai.Bool(true),
 		Include:           []responses.ResponseIncludable{responses.ResponseIncludableReasoningEncryptedContent},
@@ -253,7 +284,6 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 	totalUsage := AgentUsage{}
 	accumulateAgentUsage(&totalUsage, response)
 	lastToolStepSignature := ""
-	continueCount := 0
 	for step := 0; ; step++ {
 		outputs := make([]responses.ResponseInputItemUnionParam, 0)
 		functionCalls := make([]responses.ResponseFunctionToolCall, 0)
@@ -370,30 +400,6 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 		}
 
 		if step+1 >= maxAgentSteps {
-			if continueCount >= maxAgentContinues {
-				message := "The agent reached the maximum tool-call depth before producing a final answer. Review the tool activity above and refine the request if needed."
-				transcriptItems = appendAssistantAfterTrailingContinue(transcriptItems, AgentTranscriptItem{
-					Kind:    "message",
-					Role:    "assistant",
-					Content: message,
-				})
-				s.emitAgentProgress(runID, AgentProgressEvent{
-					RunID:  runID,
-					Kind:   "complete",
-					Status: message,
-				})
-				return AgentChatResponse{
-					Message: AgentChatMessage{
-						Role:    "assistant",
-						Content: message,
-					},
-					ToolEvents: toolEvents,
-					Items:      transcriptItems,
-					ResponseID: "",
-					Usage:      totalUsage,
-				}, nil
-			}
-
 			s.emitAgentProgress(runID, AgentProgressEvent{
 				RunID:  runID,
 				Kind:   "status",
@@ -405,7 +411,7 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 				Model:              openai.ChatModel(settings.Model),
 				PreviousResponseID: openai.String(response.ID),
 				Input: responses.ResponseNewParamsInputUnion{
-					OfInputItemList: continueInputItems(outputs),
+					OfInputItemList: continueInputItems(agentLoopScaffold(userRequest, transcriptItems, coordinateState), outputs),
 				},
 				ParallelToolCalls: openai.Bool(true),
 				Include:           []responses.ResponseIncludable{responses.ResponseIncludableReasoningEncryptedContent},
@@ -434,7 +440,6 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 				Kind:   "status",
 				Status: "Continue response received. Processing next step…",
 			})
-			continueCount++
 			step = -1
 			continue
 		}
@@ -444,7 +449,7 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 			Model:              openai.ChatModel(settings.Model),
 			PreviousResponseID: openai.String(response.ID),
 			Input: responses.ResponseNewParamsInputUnion{
-				OfInputItemList: outputs,
+				OfInputItemList: prependAgentScaffold(agentLoopScaffold(userRequest, transcriptItems, coordinateState), outputs...),
 			},
 			ParallelToolCalls: openai.Bool(true),
 			Include:           []responses.ResponseIncludable{responses.ResponseIncludableReasoningEncryptedContent},
@@ -518,7 +523,45 @@ func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinate
 		pressSpecialKeyDescription = "Press a non-text special key such as enter, return, tab, escape, space, backspace, delete, or the arrow keys. On macOS 26+, this uses the safe special-key path instead of the hidden low-level key chord tools."
 	}
 
-	tools := []agentTool{
+	var tools []agentTool
+	tools = []agentTool{
+		{
+			Name:        "load_image_for_context",
+			Description: "Load an existing image file into the main model context so the model itself can inspect it in the next step. Use this for previously saved screenshots or arbitrary image paths when the image is not already being returned directly from a fresh capture tool call.",
+			Parameters: objectSchema(map[string]any{
+				"path": stringSchema("Path to an image file such as a screenshot in the artifacts directory."),
+			}, "path"),
+			Run: func(raw string) (any, error) {
+				var payload struct {
+					Path string `json:"path"`
+				}
+				if err := decodeToolArgs(raw, &payload); err != nil {
+					return nil, err
+				}
+				path := strings.TrimSpace(payload.Path)
+				if path == "" {
+					return nil, fmt.Errorf("path is required")
+				}
+				if _, err := imageDataURL(path); err != nil {
+					return nil, err
+				}
+				return AgentImageLoadResult{
+					Path:    path,
+					Message: fmt.Sprintf("Loaded image %s into the model context.", path),
+				}, nil
+			},
+		},
+		{
+			Name:        "run_lua_script",
+			Description: "Execute a Lua script that can call the available gutgd agent tools in a loop or computed pattern. Prefer this whenever the next work involves many repeated or math-driven actions such as drawing arcs, circles, grids, repeated drags, or parameter sweeps. Call tools.<tool_name>(args_table) inside Lua, inspect tool_schemas for available arguments, and let Lua generate the repetitive sequence in one tool call instead of issuing many manual tool calls.",
+			Parameters: objectSchema(map[string]any{
+				"script":             stringSchema("Lua source code to execute. Use tools.<tool_name>(args_table) to call tools, and return a Lua value at the end if you want structured output."),
+				"instruction_budget": integerSchema("Optional Lua VM instruction budget used to stop runaway loops."),
+			}, "script"),
+			Run: func(raw string) (any, error) {
+				return runLuaScriptTool(tools, raw)
+			},
+		},
 		{
 			Name:        "get_coordinate_space",
 			Description: "Read the current coordinate space. Screen space uses absolute screen coordinates. Window space uses coordinates relative to the selected window's top-left corner.",
@@ -570,6 +613,162 @@ func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinate
 			},
 		},
 		{
+			Name:        "get_permission_readiness",
+			Description: "Read the accessibility permission and capability readiness state before screenshot-guessing or blind clicking inside an app. Use this first on macOS when you need to know whether AX-backed metadata tools are available, and pay attention to permission_blocked versus unsupported or unavailable in the returned capability entries.",
+			Parameters:  emptyObjectSchema(),
+			Run: func(raw string) (any, error) {
+				return s.GetPermissionReadiness()
+			},
+		},
+		{
+			Name:        "get_focused_window_metadata",
+			Description: "Read AX-backed metadata for the currently focused window. Prefer this before screenshot-guessing when the active app context matters. If the backend reports permission_blocked, tell the user Accessibility permission is required instead of pretending the feature is unsupported.",
+			Parameters:  emptyObjectSchema(),
+			Run: func(raw string) (any, error) {
+				return s.GetFocusedWindowMetadata()
+			},
+		},
+		{
+			Name:        "get_window_accessibility_snapshot",
+			Description: "Enumerate one window's accessible UI tree in a single tool call and return a structured markdown inventory with stable element IDs, screen regions, and suggested actions. Use handle 0 for the active window. Prefer this when you need the full picture of a window instead of probing one point at a time.",
+			Parameters: objectSchema(map[string]any{
+				"handle": integerSchema("Window handle to inspect. Use 0 for the active window."),
+			}, "handle"),
+			Run: func(raw string) (any, error) {
+				var payload WindowAccessibilitySnapshotRequest
+				if err := decodeToolArgs(raw, &payload); err != nil {
+					return nil, err
+				}
+				return s.GetWindowAccessibilitySnapshot(payload)
+			},
+		},
+		{
+			Name:        "act_on_window_accessibility_element",
+			Description: "Act on one element returned by get_window_accessibility_snapshot using its stable element ID. This resolves the cached screen region for that element so the model does not have to guess coordinates again.",
+			Parameters: objectSchema(map[string]any{
+				"snapshot_id": stringSchema("Snapshot ID returned by get_window_accessibility_snapshot."),
+				"element_id":  stringSchema("Element ID from the snapshot inventory, such as el-007."),
+				"action":      enumSchema("Action to perform on the cached element.", "click", "double_click", "right_click", "focus", "show_menu"),
+			}, "snapshot_id", "element_id", "action"),
+			Run: func(raw string) (any, error) {
+				var payload WindowAccessibilityElementActionRequest
+				if err := decodeToolArgs(raw, &payload); err != nil {
+					return nil, err
+				}
+				return s.ActOnWindowAccessibilityElement(payload)
+			},
+		},
+		{
+			Name:        "get_focused_element_metadata",
+			Description: "Read AX-backed metadata for the currently focused UI element. Prefer this for grounding text fields, buttons, and current focus before relying only on pixels. Pay attention to permission_blocked versus unsupported or unavailable in backend results.",
+			Parameters:  emptyObjectSchema(),
+			Run: func(raw string) (any, error) {
+				return s.GetFocusedElementMetadata()
+			},
+		},
+		{
+			Name:        "get_element_at_point_metadata",
+			Description: "Read AX-backed metadata for the UI element at x/y in the current coordinate space. Use this before blind clicking or screenshot-guessing when you need to confirm what control is under a point. In window space, x/y are relative to the selected window's top-left corner. Pay attention to permission_blocked versus unsupported or unavailable in backend results.",
+			Parameters: objectSchema(map[string]any{
+				"x": integerSchema("Target x-coordinate."),
+				"y": integerSchema("Target y-coordinate."),
+			}, "x", "y"),
+			Run: func(raw string) (any, error) {
+				var payload PointRequest
+				if err := decodeToolArgs(raw, &payload); err != nil {
+					return nil, err
+				}
+				requested := Point{X: payload.X, Y: payload.Y}
+				screenPoint := translatePointToScreenSpace(requested, *state)
+				result, err := s.GetElementAtPointMetadata(PointRequest{X: screenPoint.X, Y: screenPoint.Y})
+				if err != nil {
+					return nil, err
+				}
+				return AgentTranslatedPointResult{
+					CoordinateSpace: coordinateSpaceView(*state, "Element query translated to screen space."),
+					Requested:       requested,
+					ScreenPoint:     screenPoint,
+					Result:          result,
+				}, nil
+			},
+		},
+		{
+			Name:        "raise_focused_window",
+			Description: "Raise the currently focused window through AX. Inspect first with get_focused_window_metadata, then invoke this only when the advertised Actions list or window context indicates AXRaise is appropriate. Use this only for the focused window, and preserve permission_blocked versus unsupported or unavailable in backend results.",
+			Parameters:  emptyObjectSchema(),
+			Run: func(raw string) (any, error) {
+				return s.RaiseFocusedWindow()
+			},
+		},
+		{
+			Name:        "perform_focused_element_action",
+			Description: "Perform one explicit AX action on the currently focused UI element. Inspect first with get_focused_element_metadata, then invoke one action from that element's advertised Actions list. Use only the exact AX action names exposed by the tool schema, and preserve permission_blocked versus unsupported or unavailable in backend results.",
+			Parameters: objectSchema(map[string]any{
+				"action": enumSchema("Exact AX action name from the focused element's advertised Actions list.", string(common.AXPress), string(common.AXRaise), string(common.AXShowMenu), string(common.AXConfirm), string(common.AXPick)),
+			}, "action"),
+			Run: func(raw string) (any, error) {
+				var payload AXActionRequest
+				if err := decodeToolArgs(raw, &payload); err != nil {
+					return nil, err
+				}
+				return s.PerformFocusedElementAction(payload)
+			},
+		},
+		{
+			Name:        "perform_element_action_at_point",
+			Description: "Perform one explicit AX action on the UI element at x/y in the current coordinate space. Inspect first with get_element_at_point_metadata, then invoke one action from that element's advertised Actions list. In window space, x/y are relative to the selected window's top-left corner and are translated to screen space before the backend call.",
+			Parameters: objectSchema(map[string]any{
+				"x":      integerSchema("Target x-coordinate."),
+				"y":      integerSchema("Target y-coordinate."),
+				"action": enumSchema("Exact AX action name from the target element's advertised Actions list.", string(common.AXPress), string(common.AXRaise), string(common.AXShowMenu), string(common.AXConfirm), string(common.AXPick)),
+			}, "x", "y", "action"),
+			Run: func(raw string) (any, error) {
+				var payload AXActionAtPointRequest
+				if err := decodeToolArgs(raw, &payload); err != nil {
+					return nil, err
+				}
+				requested := Point{X: payload.X, Y: payload.Y}
+				screenPoint := translatePointToScreenSpace(requested, *state)
+				result, err := s.PerformElementActionAtPoint(AXActionAtPointRequest{X: screenPoint.X, Y: screenPoint.Y, Action: payload.Action})
+				if err != nil {
+					return nil, err
+				}
+				return AgentTranslatedPointResult{
+					CoordinateSpace: coordinateSpaceView(*state, "Element action translated to screen space."),
+					Requested:       requested,
+					ScreenPoint:     screenPoint,
+					Result:          result,
+				}, nil
+			},
+		},
+		{
+			Name:        "focus_element_at_point",
+			Description: "Move AX focus to the UI element at x/y in the current coordinate space. Inspect first with get_element_at_point_metadata, then invoke this when the target element should become focused before typing or another explicit action. In window space, x/y are relative to the selected window's top-left corner and are translated to screen space before the backend call.",
+			Parameters: objectSchema(map[string]any{
+				"x": integerSchema("Target x-coordinate."),
+				"y": integerSchema("Target y-coordinate."),
+			}, "x", "y"),
+			Run: func(raw string) (any, error) {
+				var payload PointRequest
+				if err := decodeToolArgs(raw, &payload); err != nil {
+					return nil, err
+				}
+				requested := Point{X: payload.X, Y: payload.Y}
+				screenPoint := translatePointToScreenSpace(requested, *state)
+				result, err := s.FocusElementAtPoint(PointRequest{X: screenPoint.X, Y: screenPoint.Y})
+				if err != nil {
+					return nil, err
+				}
+				return AgentTranslatedPointResult{
+					CoordinateSpace: coordinateSpaceView(*state, "Element focus translated to screen space."),
+					Requested:       requested,
+					ScreenPoint:     screenPoint,
+					Result:          result,
+				}, nil
+			},
+		},
+
+		{
 			Name:        "type_text",
 			Description: "Type plain text into the currently focused application. Use this for words, sentences, paragraphs, or any multi-character text input instead of spelling characters out with tap_keys.",
 			Parameters: objectSchema(map[string]any{
@@ -616,7 +815,7 @@ func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinate
 		},
 		{
 			Name:        "analyze_screenshot",
-			Description: "Analyze a previously captured screenshot or region and explain what is visible relative to the provided screen offset and scale. For visually precise clicks, prefer capturing the active window or a smaller region first, then use this tool to convert image-local targets back into screen coordinates.",
+			Description: "Analyze a previously captured screenshot or region and explain what is visible relative to the provided screen offset and scale. Treat this as a structured fallback tool, not the default path after a fresh capture. Use it only when you need explicit coordinate-aware interpretation that the main model cannot reliably infer from the returned image alone.",
 			Parameters: objectSchema(map[string]any{
 				"path":   stringSchema("Path returned by capture_screen or capture_region."),
 				"prompt": stringSchema("What to analyze in the screenshot, including the target you need to locate."),
@@ -644,6 +843,22 @@ func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinate
 				}
 				client := openai.NewClient(option.WithAPIKey(settings.APIKey))
 				return analyzeScreenshot(context.Background(), client, settings.Model, payload)
+			},
+		},
+		{
+			Name:        "translate_image_point_to_screen",
+			Description: "Translate a point from a delivered screenshot image back to an absolute screen coordinate using the capture sidecar metadata. Prefer this for precise click grounding after a fresh capture. The returned screen point is always absolute screen space, even if the current tool coordinate mode is window space.",
+			Parameters: objectSchema(map[string]any{
+				"path": stringSchema("Path returned by capture_screen or capture_region."),
+				"x":    integerSchema("Delivered-image x-coordinate to translate."),
+				"y":    integerSchema("Delivered-image y-coordinate to translate."),
+			}, "path", "x", "y"),
+			Run: func(raw string) (any, error) {
+				var payload TranslateImagePointToScreenRequest
+				if err := decodeToolArgs(raw, &payload); err != nil {
+					return nil, err
+				}
+				return s.TranslateImagePointToScreen(payload.Path, Point{X: payload.X, Y: payload.Y})
 			},
 		},
 		{
@@ -726,6 +941,30 @@ func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinate
 			},
 		},
 		{
+			Name:        "mouse_down",
+			Description: "Press and hold a mouse button without releasing it. Prefer pairing this with mouse_up in the same plan or Lua script, and prefer drag_mouse when you only need a simple drag.",
+			Parameters:  mouseButtonSchema(),
+			Run: func(raw string) (any, error) {
+				var payload MouseButtonRequest
+				if err := decodeToolArgs(raw, &payload); err != nil {
+					return nil, err
+				}
+				return s.MouseDown(payload)
+			},
+		},
+		{
+			Name:        "mouse_up",
+			Description: "Release a previously held mouse button. Use this to complete a manual press/hold sequence started with mouse_down.",
+			Parameters:  mouseButtonSchema(),
+			Run: func(raw string) (any, error) {
+				var payload MouseButtonRequest
+				if err := decodeToolArgs(raw, &payload); err != nil {
+					return nil, err
+				}
+				return s.MouseUp(payload)
+			},
+		},
+		{
 			Name:        "double_click_mouse",
 			Description: "Double-click a mouse button.",
 			Parameters:  mouseButtonSchema(),
@@ -805,10 +1044,8 @@ func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinate
 		},
 		{
 			Name:        "capture_screen",
-			Description: captureScreenDescription,
-			Parameters: objectSchema(map[string]any{
-				"file_name": stringSchema("Optional file name for the capture."),
-			}),
+			Description: captureScreenDescription + " Fresh captures are attached directly into the next model step; inspect the returned image first and use translate_image_point_to_screen for precise grounding when needed.",
+			Parameters:  captureRequestSchema(),
 			Run: func(raw string) (any, error) {
 				var payload CaptureRequest
 				if err := decodeToolArgs(raw, &payload); err != nil {
@@ -819,11 +1056,8 @@ func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinate
 		},
 		{
 			Name:        "capture_region",
-			Description: captureRegionDescription + " In window space, the region is relative to the selected window's top-left corner.",
-			Parameters: objectSchema(map[string]any{
-				"file_name": stringSchema("Optional file name for the capture."),
-				"region":    regionSchema("Region to capture."),
-			}, "region"),
+			Description: captureRegionDescription + " In window space, the region is relative to the selected window's top-left corner. Fresh captures are attached directly into the next model step; inspect the returned image first and use translate_image_point_to_screen for precise grounding when needed.",
+			Parameters:  captureRegionRequestSchema(),
 			Run: func(raw string) (any, error) {
 				var payload CaptureRegionRequest
 				if err := decodeToolArgs(raw, &payload); err != nil {
@@ -1164,21 +1398,26 @@ Use the provided tools whenever the user asks you to inspect or control the desk
 Prefer the smallest number of tool calls needed to satisfy the request.
 Summarize what you did, include notable tool results, and be explicit when the native backend reports an unsupported capability.
 Do not treat GUT_ENABLE_LIVE_TESTS or the diagnostics field live_enabled as a blocker for normal gutgd actions. Those fields belong to the separate gut live-test harness. In gutgd, use the actual tool call result and the feature_status/capability availability to decide whether an action is possible.
+Before screenshot-guessing or blind clicking inside an app, prefer get_permission_readiness on macOS to see whether AX-backed reads are available. If accessibility metadata tools are available, prefer get_window_accessibility_snapshot for the active or target window when you need the full UI picture in one step. It returns markdown plus stable element IDs, screen regions, and suggested actions for the whole accessible window tree. After that, prefer act_on_window_accessibility_element with the returned snapshot_id and element_id instead of guessing coordinates again. Use get_focused_window_metadata, get_focused_element_metadata, and get_element_at_point_metadata as narrower fallbacks when you only need a small piece of that picture. If the backend reports permission_blocked, tell the user Accessibility permission is required instead of pretending the feature is unsupported. If it reports unsupported or unavailable, fall back to window discovery and screenshot tools.
 When entering plain language text, sentences, or paragraphs into an application, prefer type_text or type_text_block. When you need to submit a text field or move focus with a non-text key, prefer press_special_key for enter, return, tab, escape, space, backspace, delete, or arrow keys. Use tap_keys only for non-text keys, shortcuts, or isolated single-key actions when that tool is available.
 After a tool returns a concrete result or structured error, do not repeat the same tool call with identical arguments unless the user explicitly asked for a retry or the environment changed.
-For visually precise clicks, do not guess repeatedly. First identify the relevant window with get_active_window or list_windows, then capture that window or a smaller region with capture_region, inspect it, choose a target, move the mouse, and if the target is small or ambiguous capture again to verify before clicking. If a click does not clearly change the UI, reassess with another capture instead of clicking nearby coordinates repeatedly.
+For visually precise clicks, do not guess repeatedly. First identify the relevant window with get_active_window or list_windows, then capture that window or a smaller region with capture_region. Fresh capture tool outputs are returned directly to the model as image context for the next step, so inspect that returned image first. For precise click grounding, prefer translate_image_point_to_screen with the delivered-image coordinates you chose from that fresh capture. If a target is small or ambiguous, capture a tighter region and verify again before clicking.
 Do not use full-screen capture for a precise click when the target is inside a single app window unless window discovery failed. Prefer smaller verification regions around the intended target after moving the pointer. Use get_active_window, list_windows, and capture_region to narrow the search area before clicking.
-On macOS, screenshots may be retina-scaled, so image pixels are often 2x screen coordinates. The macOS menu bar is included in full-screen captures; do not add a separate menu-bar offset. Use the capture metadata to convert image coordinates back to screen coordinates.
-capture_region returns the screen offset of the captured image and may include screenshot scale metadata. When you need to identify or click a visual target inside a screenshot, prefer analyze_screenshot with that path so the backend can recover the capture metadata and answer in screen coordinates. For small controls, rerun capture_region on a tighter area before the final click instead of reasoning from a broad capture.
+Use get_coordinate_space to inspect the current coordinate mode. Use switch_to_active_window_space or switch_to_window_space to enter window space when you are working inside a single window. In window space, x/y coordinates for pointer movement, drag, color_at, and capture_region are relative to that window's top-left corner and the scaffolding translates them into real screen coordinates for you. Use switch_to_screen_space to go back to absolute screen coordinates.
+On macOS, screenshots may be retina-scaled, so image pixels are often 2x screen coordinates. The macOS menu bar is included in full-screen captures; do not add a separate menu-bar offset. Use the capture metadata and translate_image_point_to_screen to convert image coordinates back to absolute screen coordinates.
+capture_region returns the screen offset of the captured image and may include delivered-image scale plus original-versus-delivered size metadata. Fresh capture_region or capture_screen outputs are automatically attached back into the next model step as image context, so the default visual flow is capture first, then reason directly from that returned image. Use translate_image_point_to_screen for precise grounding from a fresh capture. Keep analyze_screenshot as a structured fallback when direct inspection is not enough; do not call analyze_screenshot immediately after a fresh capture unless you specifically need structured coordinate-aware interpretation that direct image reasoning cannot provide. Use load_image_for_context only for previously saved screenshots or arbitrary image paths that were not just captured. Be careful if you are currently in window space: translate_image_point_to_screen returns absolute screen coordinates, not window-relative coordinates. For small controls, rerun capture_region on a tighter area before the final click instead of reasoning from a broad capture.
+Use run_lua_script early when the next work is repetitive, geometric, or depends on loops, counters, interpolation, trigonometry, or other math. Prefer Lua over many separate tool calls for circles, arcs, grids, repeated drags, sweeps, or any computed sequence. Inside Lua, call tools.<tool_name>(args_table), inspect tool_schemas for arguments, and return a Lua table with any useful summary of what the script did.
+If you use mouse_down in a plan or Lua script, make sure you also call mouse_up before finishing that sequence unless the task explicitly requires keeping the button held. Prefer drag_mouse for ordinary drags, and use mouse_down/mouse_up only when you need custom press-move-release choreography.
 When continuing an existing conversation through previous_response_id, rely on the server-side conversation state rather than asking the user to resend old turns.
 Never print pseudo tool-call syntax such as "to=functions.*", JSON envelopes, or planning text in place of an actual tool call. If you need a tool, call it through the Responses function tool interface.
 If multiple independent tool calls are needed in the same step, issue real parallel function calls rather than describing them in text.
 Use common key aliases naturally: meta, super, cmd, and command all mean the platform meta key in this environment.
 Do not narrate that you are about to call a tool. Call the tool first, then describe the result after the tool outputs are available.
+Inside run_lua_script, use the built-in geom helpers to reduce boilerplate for computed pointer paths: geom.line, geom.smooth_line, geom.arc, geom.circle, geom.lerp, geom.smoothstep, geom.round_to_step, geom.snap_point, geom.round_points, and geom.simplify. Prefer geom.smooth_line or geom.arc/circle for visually smooth mouse drawings instead of hard-coding every point manually.
 Do not invent tool results.`
 	if goos == "darwin" {
 		prompt += `
-On macOS 26+, capture_screen and capture_region use the safe OS screenshot fallback instead of the hidden native screen.capture capability. Prefer press_special_key for enter, return, tab, escape, space, backspace, delete, and arrow keys. Low-level tap_keys, press_keys, release_keys, and highlight_region are intentionally unavailable on macOS 26+.`
+On macOS 26+, capture_screen and capture_region use the safe OS screenshot fallback instead of the hidden native screen.capture capability. Prefer press_special_key for enter, return, tab, escape, space, backspace, delete, and arrow keys. Before screenshot-guessing or blind clicking inside an app, prefer get_permission_readiness to check whether AX-backed metadata reads and actions are available. When those reads are available, prefer get_window_accessibility_snapshot first for the focused or chosen window, then use act_on_window_accessibility_element for cached ID-based interactions. Use get_focused_window_metadata, get_focused_element_metadata, and get_element_at_point_metadata when you only need a narrow check. Inspect first, then act: use raise_focused_window only after get_focused_window_metadata, use perform_focused_element_action only after get_focused_element_metadata, and use perform_element_action_at_point or focus_element_at_point only after get_element_at_point_metadata. If AX tools report permission_blocked, tell the user Accessibility permission is required. If they report unsupported or unavailable, fall back to get_active_window, list_windows, capture_region, and related screenshot tools. Low-level tap_keys, press_keys, release_keys, and highlight_region are intentionally unavailable on macOS 26+.`
 	}
 	return strings.TrimSpace(prompt)
 }
@@ -1230,66 +1469,135 @@ func agentFunctionCallOutput(callID string, output string) responses.ResponseInp
 	return responses.ResponseInputItemParamOfFunctionCallOutput(callID, output)
 }
 
+type agentImageAttachment struct {
+	Path   string
+	Text   string
+	Detail responses.ResponseInputImageContentDetail
+}
+
 func imageFunctionCallOutputItems(output string) (responses.ResponseFunctionCallOutputItemListParam, bool) {
-	capture, ok := captureResultFromOutput(output)
+	attachment, ok := imageAttachmentFromOutput(output)
 	if !ok {
 		return nil, false
 	}
-	dataURL, err := imageDataURL(capture.Path)
+	dataURL, err := imageDataURL(attachment.Path)
 	if err != nil {
 		return nil, false
 	}
 	return responses.ResponseFunctionCallOutputItemListParam{
 		{
 			OfInputText: &responses.ResponseInputTextContentParam{
-				Text: captureInstructionText(capture),
+				Text: attachment.Text,
 			},
 		},
 		{
 			OfInputImage: &responses.ResponseInputImageContentParam{
 				ImageURL: openai.String(dataURL),
-				Detail:   responses.ResponseInputImageContentDetailHigh,
+				Detail:   attachment.Detail,
 			},
 		},
 	}, true
 }
 
-func captureResultFromOutput(output string) (CaptureResult, bool) {
-	var payload CaptureResult
-	if err := json.Unmarshal([]byte(output), &payload); err != nil {
-		return CaptureResult{}, false
+func imageAttachmentFromOutput(output string) (agentImageAttachment, bool) {
+	if capture, ok := captureResultFromOutput(output); ok {
+		return agentImageAttachment{
+			Path:   capture.Path,
+			Text:   captureInstructionText(capture),
+			Detail: responses.ResponseInputImageContentDetailOriginal,
+		}, true
 	}
-	path := strings.TrimSpace(payload.Path)
+
+	var imageLoad AgentImageLoadResult
+	if err := json.Unmarshal([]byte(output), &imageLoad); err != nil {
+		return agentImageAttachment{}, false
+	}
+	path := strings.TrimSpace(imageLoad.Path)
 	if path == "" {
-		return CaptureResult{}, false
+		return agentImageAttachment{}, false
 	}
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".png", ".jpg", ".jpeg", ".webp", ".gif":
-		payload.Path = path
-		if payload.Scale.X <= 0 {
-			payload.Scale.X = 1
-		}
-		if payload.Scale.Y <= 0 {
-			payload.Scale.Y = 1
-		}
-		return payload, true
 	default:
+		return agentImageAttachment{}, false
+	}
+	text := strings.TrimSpace(imageLoad.Message)
+	if text == "" {
+		text = fmt.Sprintf("Loaded image %s into the model context.", path)
+	}
+	return agentImageAttachment{
+		Path:   path,
+		Text:   text,
+		Detail: responses.ResponseInputImageContentDetailHigh,
+	}, true
+}
+
+func captureResultFromOutput(output string) (CaptureResult, bool) {
+	return captureResultFromOutputJSON([]byte(output))
+}
+
+func captureResultFromOutputJSON(data []byte) (CaptureResult, bool) {
+	var payloadMap map[string]json.RawMessage
+	if err := json.Unmarshal(data, &payloadMap); err == nil {
+		if !looksLikeCapturePayload(payloadMap) {
+			payloadMap = nil
+		} else {
+			var payload CaptureResult
+			if err := json.Unmarshal(data, &payload); err == nil {
+				path := strings.TrimSpace(payload.Path)
+				switch strings.ToLower(filepath.Ext(path)) {
+				case ".png", ".jpg", ".jpeg", ".webp", ".gif":
+					payload.Path = path
+					return normalizeCaptureResultMetadata(payload), true
+				}
+			}
+		}
+	}
+
+	var nested struct {
+		Result json.RawMessage `json:"result"`
+	}
+	if err := json.Unmarshal(data, &nested); err != nil || len(nested.Result) == 0 {
 		return CaptureResult{}, false
 	}
+	return captureResultFromOutputJSON(nested.Result)
+}
+
+func looksLikeCapturePayload(payload map[string]json.RawMessage) bool {
+	if len(payload) == 0 {
+		return false
+	}
+	for _, key := range []string{"offset", "scale", "original_size", "delivered_size", "original_scale"} {
+		if _, ok := payload[key]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func captureInstructionText(capture CaptureResult) string {
+	capture = normalizeCaptureResultMetadata(capture)
 	return strings.TrimSpace(fmt.Sprintf(
 		`%s
 
 Capture metadata:
 - path: %s
 - screen offset: (%d, %d)
-- screenshot scale: x=%.4f, y=%.4f image pixels per screen coordinate
+- delivered scale: x=%.4f, y=%.4f image pixels per screen coordinate
+- original size: %dx%d
+- delivered size: %dx%d
+- original scale: x=%.4f, y=%.4f image pixels per screen coordinate
 
-If you identify a target at image coordinates (image_x, image_y), convert it back to screen coordinates with:
-- screen_x = %d + image_x / %.4f
-- screen_y = %d + image_y / %.4f
+Preferred precise path:
+- inspect this returned image directly first
+- if you choose a target at delivered image coordinates (image_x, image_y), call translate_image_point_to_screen with this path and those delivered coordinates
+- translate_image_point_to_screen returns an absolute screen coordinate, even if the current coordinate mode is window space
+
+Manual fallback math:
+- original_x = image_x * %d / %d
+- original_y = image_y * %d / %d
+- screen_x = %d + original_x / %.4f
+- screen_y = %d + original_y / %.4f
 
 On macOS, full-screen captures already include the menu bar. Do not add a separate menu-bar offset.`,
 		capture.Message,
@@ -1298,10 +1606,20 @@ On macOS, full-screen captures already include the menu bar. Do not add a separa
 		capture.Offset.Y,
 		capture.Scale.X,
 		capture.Scale.Y,
+		capture.OriginalSize.Width,
+		capture.OriginalSize.Height,
+		capture.DeliveredSize.Width,
+		capture.DeliveredSize.Height,
+		capture.OriginalScale.X,
+		capture.OriginalScale.Y,
+		capture.OriginalSize.Width,
+		capture.DeliveredSize.Width,
+		capture.OriginalSize.Height,
+		capture.DeliveredSize.Height,
 		capture.Offset.X,
-		capture.Scale.X,
+		capture.OriginalScale.X,
 		capture.Offset.Y,
-		capture.Scale.Y,
+		capture.OriginalScale.Y,
 	))
 }
 
@@ -1412,25 +1730,20 @@ func normalizeImageDetailParam(value string) responses.ResponseInputImageDetail 
 	}
 }
 
-func continueInputItems(outputs []responses.ResponseInputItemUnionParam) []responses.ResponseInputItemUnionParam {
-	items := append(make([]responses.ResponseInputItemUnionParam, 0, len(outputs)+1), outputs...)
+func continueInputItems(scaffold string, outputs []responses.ResponseInputItemUnionParam) []responses.ResponseInputItemUnionParam {
+	items := prependAgentScaffold(scaffold, outputs...)
 	items = append(items, responses.ResponseInputItemParamOfMessage(continueMessage, responses.EasyInputMessageRoleUser))
 	return items
 }
 
-func appendAssistantAfterTrailingContinue(items []AgentTranscriptItem, assistant AgentTranscriptItem) []AgentTranscriptItem {
-	if len(items) == 0 {
-		return append(items, assistant)
+func prependAgentScaffold(scaffold string, items ...responses.ResponseInputItemUnionParam) []responses.ResponseInputItemUnionParam {
+	scaffold = strings.TrimSpace(scaffold)
+	result := make([]responses.ResponseInputItemUnionParam, 0, len(items)+1)
+	if scaffold != "" {
+		result = append(result, responses.ResponseInputItemParamOfMessage(scaffold, responses.EasyInputMessageRoleDeveloper))
 	}
-
-	last := items[len(items)-1]
-	if last.Kind != "message" || last.Role != "user" || last.Content != continueMessage {
-		return append(items, assistant)
-	}
-
-	next := append(make([]AgentTranscriptItem, 0, len(items)+1), items[:len(items)-1]...)
-	next = append(next, assistant, last)
-	return next
+	result = append(result, items...)
+	return result
 }
 
 func transcriptItemsFromResponseOutput(item responses.ResponseOutputItemUnion) []AgentTranscriptItem {
@@ -1524,6 +1837,1062 @@ func combineInstructions(systemPrompt string) string {
 	return agentDeveloperPrompt() + "\n\nAdditional system prompt:\n" + systemPrompt
 }
 
+type luaScriptRequest struct {
+	Script            string `json:"script"`
+	InstructionBudget int    `json:"instruction_budget"`
+}
+
+func runLuaScriptTool(tools []agentTool, raw string) (any, error) {
+	var payload luaScriptRequest
+	if err := decodeToolArgs(raw, &payload); err != nil {
+		return nil, err
+	}
+	script := strings.TrimSpace(payload.Script)
+	if script == "" {
+		return nil, fmt.Errorf("script is required")
+	}
+
+	instructionBudget := payload.InstructionBudget
+	if instructionBudget <= 0 {
+		instructionBudget = 500000
+	}
+
+	state := lua.NewState()
+	openLuaAgentLibraries(state)
+	toolCallCount := 0
+	registerLuaToolGlobals(state, tools, &toolCallCount)
+	installLuaInstructionGuard(state, instructionBudget)
+
+	if err := lua.LoadString(state, script); err != nil {
+		return nil, fmt.Errorf("lua load failed: %w", err)
+	}
+	if err := state.ProtectedCall(0, lua.MultipleReturns, 0); err != nil {
+		return nil, fmt.Errorf("lua execution failed: %w", err)
+	}
+
+	result, err := collectLuaReturnValues(state)
+	if err != nil {
+		return nil, err
+	}
+
+	return AgentLuaScriptResult{
+		Script:    script,
+		ToolCalls: toolCallCount,
+		Result:    result,
+		Message:   fmt.Sprintf("Executed Lua script with %d tool calls.", toolCallCount),
+	}, nil
+}
+
+func openLuaAgentLibraries(state *lua.State) {
+	for _, library := range []struct {
+		name     string
+		function lua.Function
+		global   bool
+	}{
+		{name: "_G", function: lua.BaseOpen, global: true},
+		{name: "table", function: lua.TableOpen, global: true},
+		{name: "string", function: lua.StringOpen, global: true},
+		{name: "math", function: lua.MathOpen, global: true},
+		{name: "bit32", function: lua.Bit32Open, global: true},
+	} {
+		lua.Require(state, library.name, library.function, library.global)
+		state.Pop(1)
+	}
+	registerLuaGeometryLibrary(state)
+}
+
+func registerLuaToolGlobals(state *lua.State, tools []agentTool, toolCallCount *int) {
+	state.CreateTable(0, len(tools))
+	for _, tool := range tools {
+		if tool.Name == "run_lua_script" {
+			continue
+		}
+		currentTool := tool
+		state.PushGoFunction(func(l *lua.State) int {
+			args, err := luaToolArgsFromStack(l)
+			if err != nil {
+				lua.Errorf(l, "invalid lua tool arguments for %s: %s", currentTool.Name, err.Error())
+				panic("unreachable")
+			}
+			payload, err := json.Marshal(args)
+			if err != nil {
+				lua.Errorf(l, "failed to marshal lua tool arguments for %s: %s", currentTool.Name, err.Error())
+				panic("unreachable")
+			}
+			*toolCallCount++
+			result, err := currentTool.Run(string(payload))
+			if err != nil {
+				l.PushNil()
+				l.PushString(err.Error())
+				return 2
+			}
+			if err := pushLuaValue(l, result); err != nil {
+				lua.Errorf(l, "failed to push result for %s: %s", currentTool.Name, err.Error())
+				panic("unreachable")
+			}
+			l.PushNil()
+			return 2
+		})
+		state.SetField(-2, currentTool.Name)
+	}
+	state.SetGlobal("tools")
+
+	specs := make(map[string]any, 0)
+	for _, tool := range tools {
+		if tool.Name == "run_lua_script" {
+			continue
+		}
+		specs[tool.Name] = map[string]any{
+			"name":        tool.Name,
+			"description": tool.Description,
+			"parameters":  tool.Parameters,
+		}
+	}
+	if err := pushLuaValue(state, specs); err != nil {
+		panic(err)
+	}
+	state.SetGlobal("tool_schemas")
+}
+
+func registerLuaGeometryLibrary(state *lua.State) {
+	state.CreateTable(0, 10)
+
+	state.PushGoFunction(func(l *lua.State) int {
+		value := lua.OptNumber(l, 1, 0)
+		step := lua.OptNumber(l, 2, 1)
+		l.PushNumber(roundToStep(value, step))
+		return 1
+	})
+	state.SetField(-2, "round_to_step")
+
+	state.PushGoFunction(func(l *lua.State) int {
+		value := lua.OptNumber(l, 1, 0)
+		l.PushInteger(int(math.Round(value)))
+		return 1
+	})
+	state.SetField(-2, "round")
+
+	state.PushGoFunction(func(l *lua.State) int {
+		x := lua.OptNumber(l, 1, 0)
+		y := lua.OptNumber(l, 2, 0)
+		step := lua.OptNumber(l, 3, 1)
+		pushNormalizedLuaValue(l, map[string]any{
+			"x": int(math.Round(roundToStep(x, step))),
+			"y": int(math.Round(roundToStep(y, step))),
+		})
+		return 1
+	})
+	state.SetField(-2, "snap_point")
+
+	state.PushGoFunction(func(l *lua.State) int {
+		start := lua.OptNumber(l, 1, 0)
+		stop := lua.OptNumber(l, 2, 0)
+		t := clamp01(lua.OptNumber(l, 3, 0))
+		l.PushNumber(start + (stop-start)*t)
+		return 1
+	})
+	state.SetField(-2, "lerp")
+
+	state.PushGoFunction(func(l *lua.State) int {
+		t := clamp01(lua.OptNumber(l, 1, 0))
+		l.PushNumber(t * t * (3 - 2*t))
+		return 1
+	})
+	state.SetField(-2, "smoothstep")
+
+	state.PushGoFunction(func(l *lua.State) int {
+		x1 := lua.OptNumber(l, 1, 0)
+		y1 := lua.OptNumber(l, 2, 0)
+		x2 := lua.OptNumber(l, 3, 0)
+		y2 := lua.OptNumber(l, 4, 0)
+		steps := maxInt(lua.OptInteger(l, 5, 2), 2)
+		step := lua.OptNumber(l, 6, 1)
+		points := makeLinearPoints(x1, y1, x2, y2, steps, step, false)
+		if err := pushLuaValue(l, points); err != nil {
+			lua.Errorf(l, "failed to return geom.line points: %s", err.Error())
+			panic("unreachable")
+		}
+		return 1
+	})
+	state.SetField(-2, "line")
+
+	state.PushGoFunction(func(l *lua.State) int {
+		x1 := lua.OptNumber(l, 1, 0)
+		y1 := lua.OptNumber(l, 2, 0)
+		x2 := lua.OptNumber(l, 3, 0)
+		y2 := lua.OptNumber(l, 4, 0)
+		steps := maxInt(lua.OptInteger(l, 5, 2), 2)
+		step := lua.OptNumber(l, 6, 1)
+		points := makeLinearPoints(x1, y1, x2, y2, steps, step, true)
+		if err := pushLuaValue(l, points); err != nil {
+			lua.Errorf(l, "failed to return geom.smooth_line points: %s", err.Error())
+			panic("unreachable")
+		}
+		return 1
+	})
+	state.SetField(-2, "smooth_line")
+
+	state.PushGoFunction(func(l *lua.State) int {
+		cx := lua.OptNumber(l, 1, 0)
+		cy := lua.OptNumber(l, 2, 0)
+		radius := lua.OptNumber(l, 3, 0)
+		steps := maxInt(lua.OptInteger(l, 4, 36), 2)
+		startAngle := lua.OptNumber(l, 5, 0)
+		endAngle := lua.OptNumber(l, 6, math.Pi*2)
+		step := lua.OptNumber(l, 7, 1)
+		points := makeArcPoints(cx, cy, radius, steps, startAngle, endAngle, step)
+		if err := pushLuaValue(l, points); err != nil {
+			lua.Errorf(l, "failed to return geom.arc points: %s", err.Error())
+			panic("unreachable")
+		}
+		return 1
+	})
+	state.SetField(-2, "arc")
+
+	state.PushGoFunction(func(l *lua.State) int {
+		cx := lua.OptNumber(l, 1, 0)
+		cy := lua.OptNumber(l, 2, 0)
+		radius := lua.OptNumber(l, 3, 0)
+		steps := maxInt(lua.OptInteger(l, 4, 36), 3)
+		step := lua.OptNumber(l, 5, 1)
+		points := makeArcPoints(cx, cy, radius, steps, 0, math.Pi*2, step)
+		if err := pushLuaValue(l, points); err != nil {
+			lua.Errorf(l, "failed to return geom.circle points: %s", err.Error())
+			panic("unreachable")
+		}
+		return 1
+	})
+	state.SetField(-2, "circle")
+
+	state.PushGoFunction(func(l *lua.State) int {
+		pointsValue, err := luaValueToGo(l, 1)
+		if err != nil {
+			lua.Errorf(l, "invalid geom.simplify arguments: %s", err.Error())
+			panic("unreachable")
+		}
+		minDistance := lua.OptNumber(l, 2, 1)
+		points, err := coercePointList(pointsValue)
+		if err != nil {
+			lua.Errorf(l, "invalid geom.simplify point list: %s", err.Error())
+			panic("unreachable")
+		}
+		simplified := simplifyPoints(points, minDistance)
+		if err := pushLuaValue(l, simplified); err != nil {
+			lua.Errorf(l, "failed to return geom.simplify points: %s", err.Error())
+			panic("unreachable")
+		}
+		return 1
+	})
+	state.SetField(-2, "simplify")
+
+	state.PushGoFunction(func(l *lua.State) int {
+		pointsValue, err := luaValueToGo(l, 1)
+		if err != nil {
+			lua.Errorf(l, "invalid geom.round_points arguments: %s", err.Error())
+			panic("unreachable")
+		}
+		step := lua.OptNumber(l, 2, 1)
+		points, err := coercePointList(pointsValue)
+		if err != nil {
+			lua.Errorf(l, "invalid geom.round_points point list: %s", err.Error())
+			panic("unreachable")
+		}
+		rounded := make([]map[string]any, 0, len(points))
+		for _, point := range points {
+			rounded = append(rounded, map[string]any{
+				"x": int(math.Round(roundToStep(point.X, step))),
+				"y": int(math.Round(roundToStep(point.Y, step))),
+			})
+		}
+		if err := pushLuaValue(l, rounded); err != nil {
+			lua.Errorf(l, "failed to return geom.round_points result: %s", err.Error())
+			panic("unreachable")
+		}
+		return 1
+	})
+	state.SetField(-2, "round_points")
+
+	state.SetGlobal("geom")
+}
+
+func installLuaInstructionGuard(state *lua.State, instructionBudget int) {
+	remaining := instructionBudget
+	lua.SetDebugHook(state, func(l *lua.State, _ lua.Debug) {
+		remaining -= 1000
+		if remaining >= 0 {
+			return
+		}
+		l.PushString("lua instruction budget exceeded")
+		l.Error()
+	}, lua.MaskCount, 1000)
+}
+
+func luaToolArgsFromStack(state *lua.State) (map[string]any, error) {
+	switch state.Top() {
+	case 0:
+		return map[string]any{}, nil
+	case 1:
+		if state.IsNil(1) {
+			return map[string]any{}, nil
+		}
+		value, err := luaValueToGo(state, 1)
+		if err != nil {
+			return nil, err
+		}
+		object, ok := value.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("expected a table argument")
+		}
+		return object, nil
+	default:
+		return nil, fmt.Errorf("expected zero or one table argument")
+	}
+}
+
+func collectLuaReturnValues(state *lua.State) (any, error) {
+	count := state.Top()
+	switch count {
+	case 0:
+		return nil, nil
+	case 1:
+		return luaValueToGo(state, 1)
+	default:
+		values := make([]any, 0, count)
+		for index := 1; index <= count; index++ {
+			value, err := luaValueToGo(state, index)
+			if err != nil {
+				return nil, err
+			}
+			values = append(values, value)
+		}
+		return values, nil
+	}
+}
+
+func luaValueToGo(state *lua.State, index int) (any, error) {
+	switch {
+	case state.IsNoneOrNil(index):
+		return nil, nil
+	case state.IsBoolean(index):
+		return state.ToBoolean(index), nil
+	case state.IsNumber(index):
+		if value, ok := state.ToInteger(index); ok {
+			return value, nil
+		}
+		value, ok := state.ToNumber(index)
+		if !ok {
+			return nil, fmt.Errorf("invalid number at stack index %d", index)
+		}
+		return value, nil
+	case state.IsString(index):
+		value, ok := state.ToString(index)
+		if !ok {
+			return nil, fmt.Errorf("invalid string at stack index %d", index)
+		}
+		return value, nil
+	case state.IsTable(index):
+		return luaTableToGo(state, index)
+	default:
+		return nil, fmt.Errorf("unsupported lua value at stack index %d", index)
+	}
+}
+
+func luaTableToGo(state *lua.State, index int) (any, error) {
+	absIndex := state.AbsIndex(index)
+	entries := make([]struct {
+		keyString string
+		keyInt    int
+		isIntKey  bool
+		value     any
+	}, 0)
+	allIntKeys := true
+	maxIntKey := 0
+
+	state.PushNil()
+	for state.Next(absIndex) {
+		value, err := luaValueToGo(state, -1)
+		if err != nil {
+			state.Pop(2)
+			return nil, err
+		}
+		entry := struct {
+			keyString string
+			keyInt    int
+			isIntKey  bool
+			value     any
+		}{
+			value: value,
+		}
+		if key, ok := state.ToInteger(-2); ok && key > 0 {
+			entry.keyInt = key
+			entry.isIntKey = true
+			if key > maxIntKey {
+				maxIntKey = key
+			}
+		} else if key, ok := state.ToString(-2); ok {
+			entry.keyString = key
+			allIntKeys = false
+		} else {
+			state.Pop(2)
+			return nil, fmt.Errorf("unsupported lua table key type")
+		}
+		if !entry.isIntKey {
+			allIntKeys = false
+		}
+		entries = append(entries, entry)
+		state.Pop(1)
+	}
+
+	if allIntKeys && len(entries) == maxIntKey {
+		values := make([]any, maxIntKey)
+		for _, entry := range entries {
+			values[entry.keyInt-1] = entry.value
+		}
+		return values, nil
+	}
+
+	values := make(map[string]any, len(entries))
+	for _, entry := range entries {
+		if entry.isIntKey {
+			values[fmt.Sprintf("%d", entry.keyInt)] = entry.value
+			continue
+		}
+		values[entry.keyString] = entry.value
+	}
+	return values, nil
+}
+
+func pushLuaValue(state *lua.State, value any) error {
+	normalized, err := normalizeLuaCompatibleValue(value)
+	if err != nil {
+		return err
+	}
+	pushNormalizedLuaValue(state, normalized)
+	return nil
+}
+
+func normalizeLuaCompatibleValue(value any) (any, error) {
+	switch typed := value.(type) {
+	case nil, string, bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+		return typed, nil
+	case []any:
+		values := make([]any, 0, len(typed))
+		for _, item := range typed {
+			normalized, err := normalizeLuaCompatibleValue(item)
+			if err != nil {
+				return nil, err
+			}
+			values = append(values, normalized)
+		}
+		return values, nil
+	case map[string]any:
+		values := make(map[string]any, len(typed))
+		for key, item := range typed {
+			normalized, err := normalizeLuaCompatibleValue(item)
+			if err != nil {
+				return nil, err
+			}
+			values[key] = normalized
+		}
+		return values, nil
+	default:
+		data, err := json.Marshal(value)
+		if err != nil {
+			return nil, err
+		}
+		var normalized any
+		if err := json.Unmarshal(data, &normalized); err != nil {
+			return nil, err
+		}
+		return normalizeLuaCompatibleValue(normalized)
+	}
+}
+
+func pushNormalizedLuaValue(state *lua.State, value any) {
+	switch typed := value.(type) {
+	case nil:
+		state.PushNil()
+	case bool:
+		state.PushBoolean(typed)
+	case string:
+		state.PushString(typed)
+	case int:
+		state.PushInteger(typed)
+	case int8:
+		state.PushInteger(int(typed))
+	case int16:
+		state.PushInteger(int(typed))
+	case int32:
+		state.PushInteger(int(typed))
+	case int64:
+		state.PushNumber(float64(typed))
+	case uint:
+		state.PushNumber(float64(typed))
+	case uint8:
+		state.PushInteger(int(typed))
+	case uint16:
+		state.PushInteger(int(typed))
+	case uint32:
+		state.PushNumber(float64(typed))
+	case uint64:
+		state.PushNumber(float64(typed))
+	case float32:
+		state.PushNumber(float64(typed))
+	case float64:
+		state.PushNumber(typed)
+	case []any:
+		state.CreateTable(len(typed), 0)
+		for index, item := range typed {
+			pushNormalizedLuaValue(state, item)
+			state.RawSetInt(-2, index+1)
+		}
+	case map[string]any:
+		state.CreateTable(0, len(typed))
+		for key, item := range typed {
+			pushNormalizedLuaValue(state, item)
+			state.SetField(-2, key)
+		}
+	default:
+		state.PushString(fmt.Sprintf("%v", typed))
+	}
+}
+
+func latestUserRequestText(messages []AgentChatMessage) string {
+	for index := len(messages) - 1; index >= 0; index-- {
+		if normalizeAgentRole(messages[index].Role) != "user" {
+			continue
+		}
+		if text := strings.TrimSpace(messages[index].Content); text != "" {
+			return text
+		}
+	}
+	return ""
+}
+
+func agentLoopScaffold(userRequest string, transcriptItems []AgentTranscriptItem, coordinateState *agentCoordinateState) string {
+	parts := []string{
+		"<agent_state>",
+		"<user_request>",
+		strings.TrimSpace(userRequest),
+		"</user_request>",
+		fmt.Sprintf("<coordinate_space>%s</coordinate_space>", coordinateSpaceScaffoldText(coordinateState)),
+		fmt.Sprintf("<evaluation_previous_step>%s</evaluation_previous_step>", evaluatePreviousStep(transcriptItems)),
+		fmt.Sprintf("<memory>%s</memory>", executionMemory(transcriptItems)),
+		"<plan>",
+		agentExecutionPlan(userRequest, transcriptItems),
+		"</plan>",
+		"<todo_list>",
+		agentTodoList(userRequest, transcriptItems),
+		"</todo_list>",
+		fmt.Sprintf("<next_goal>%s</next_goal>", nextImmediateGoal(userRequest, transcriptItems)),
+	}
+
+	history := compactAgentHistory(transcriptItems, 8)
+	if history != "" {
+		parts = append(parts, "<agent_history>", history, "</agent_history>")
+	}
+
+	parts = append(parts, "</agent_state>")
+	return strings.Join(parts, "\n")
+}
+
+func coordinateSpaceScaffoldText(state *agentCoordinateState) string {
+	if state == nil || state.Mode != "window" || state.Window == nil {
+		return "screen space (absolute screen coordinates)"
+	}
+	return fmt.Sprintf(
+		"window space for %q with origin at screen coordinates (%d, %d)",
+		state.Window.Title,
+		state.Window.Region.Left,
+		state.Window.Region.Top,
+	)
+}
+
+func evaluatePreviousStep(items []AgentTranscriptItem) string {
+	if len(items) == 0 {
+		return "No prior step yet."
+	}
+	last := items[len(items)-1]
+	switch last.Kind {
+	case "tool_output":
+		if strings.TrimSpace(last.Error) != "" {
+			return fmt.Sprintf("The last tool result failed in %s: %s", humanToolName(last.Name), strings.TrimSpace(last.Error))
+		}
+		return fmt.Sprintf("The last tool result completed in %s.", humanToolName(last.Name))
+	case "tool_call":
+		return fmt.Sprintf("The last step initiated %s and is waiting on its result.", humanToolName(last.Name))
+	case "message":
+		if last.Role == "assistant" {
+			return "The assistant produced a visible response for the previous step."
+		}
+		if last.Role == "user" && strings.TrimSpace(last.Content) == continueMessage {
+			return "The previous step exhausted its local step budget and requested continuation."
+		}
+	}
+	return "The previous step produced new transcript output."
+}
+
+func executionMemory(items []AgentTranscriptItem) string {
+	if len(items) == 0 {
+		return "No confirmed actions or observations yet."
+	}
+
+	memories := make([]string, 0, 4)
+	for index := len(items) - 1; index >= 0 && len(memories) < 4; index-- {
+		item := items[index]
+		switch item.Kind {
+		case "tool_output":
+			summary := summarizeText(item.Output)
+			if strings.TrimSpace(item.Error) != "" {
+				summary = strings.TrimSpace(item.Error)
+			}
+			memories = append(memories, fmt.Sprintf("%s -> %s", humanToolName(item.Name), summary))
+		case "message":
+			if item.Role == "assistant" && strings.TrimSpace(item.Content) != "" {
+				memories = append(memories, summarizeText(item.Content))
+			}
+		}
+	}
+	slices.Reverse(memories)
+	return strings.Join(memories, " | ")
+}
+
+func nextImmediateGoal(userRequest string, items []AgentTranscriptItem) string {
+	request := strings.TrimSpace(userRequest)
+	if request == "" {
+		request = "continue the current desktop task"
+	}
+	if len(items) == 0 {
+		return "Start by gathering the smallest amount of evidence needed to move toward the user request."
+	}
+	last := items[len(items)-1]
+	if last.Kind == "tool_output" && strings.TrimSpace(last.Error) != "" {
+		return "Recover from the last tool error with a different grounded action instead of retrying the same failing step blindly."
+	}
+	return fmt.Sprintf("Take the next smallest grounded action toward: %s", request)
+}
+
+func agentExecutionPlan(userRequest string, items []AgentTranscriptItem) string {
+	request := strings.TrimSpace(userRequest)
+	if request == "" {
+		request = "complete the current desktop task"
+	}
+
+	steps := []string{
+		"1. Establish the current target context and coordinate space before interacting.",
+		"2. Gather just enough evidence from the UI or tool outputs to choose the next grounded action.",
+		"3. Execute the smallest action that advances the task.",
+		"4. Verify the result and either continue, adjust, or recover from the last step.",
+	}
+
+	if hasVisualEvidence(items) {
+		steps[1] = "2. Use the available screenshot or tool evidence to identify the next concrete target."
+	}
+	if lastItemHasError(items) {
+		steps[2] = "3. Recover from the last failure with a different grounded action instead of retrying blindly."
+	}
+
+	return fmt.Sprintf("Objective: %s\n%s", request, strings.Join(steps, "\n"))
+}
+
+func agentTodoList(userRequest string, items []AgentTranscriptItem) string {
+	request := strings.TrimSpace(userRequest)
+	if request == "" {
+		request = "current desktop task"
+	}
+
+	todos := []string{
+		"- [ ] Confirm the exact target or window for the task.",
+		"- [ ] Take or use the best available evidence for the next action.",
+		"- [ ] Perform the next grounded interaction for the request.",
+		"- [ ] Verify the result before moving on.",
+	}
+
+	if hasWindowSpace(items) {
+		todos[0] = "- [x] Confirmed target window / coordinate context."
+	}
+	if hasCaptureEvidence(items) {
+		todos[1] = "- [x] Captured or loaded visual evidence for the current step."
+	}
+	if hasMeaningfulAction(items) {
+		todos[2] = "- [x] Performed at least one grounded interaction toward the request."
+	}
+	if lastAssistantLooksLikeVerification(items) {
+		todos[3] = "- [x] Verified the most recent visible outcome."
+	}
+
+	return fmt.Sprintf("Task: %s\n%s", request, strings.Join(todos, "\n"))
+}
+
+func compactAgentHistory(items []AgentTranscriptItem, limit int) string {
+	if limit <= 0 || len(items) == 0 {
+		return ""
+	}
+	start := len(items) - limit
+	if start < 0 {
+		start = 0
+	}
+	lines := make([]string, 0, len(items)-start)
+	for _, item := range items[start:] {
+		switch item.Kind {
+		case "message":
+			if text := strings.TrimSpace(item.Content); text != "" {
+				lines = append(lines, fmt.Sprintf("%s: %s", item.Role, summarizeText(text)))
+			}
+		case "tool_call":
+			lines = append(lines, fmt.Sprintf("tool call: %s", humanToolName(item.Name)))
+		case "tool_output":
+			text := summarizeText(item.Output)
+			if strings.TrimSpace(item.Error) != "" {
+				text = strings.TrimSpace(item.Error)
+			}
+			lines = append(lines, fmt.Sprintf("tool result: %s -> %s", humanToolName(item.Name), text))
+		case "reasoning":
+			if text := strings.TrimSpace(item.Content); text != "" {
+				lines = append(lines, fmt.Sprintf("reasoning: %s", summarizeText(text)))
+			}
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func summarizeText(value string) string {
+	text := strings.TrimSpace(value)
+	if text == "" {
+		return "no notable details"
+	}
+	text = strings.ReplaceAll(text, "\n", " ")
+	text = strings.Join(strings.Fields(text), " ")
+	const maxLen = 140
+	if len(text) <= maxLen {
+		return text
+	}
+	return text[:maxLen-1] + "…"
+}
+
+func humanToolName(value string) string {
+	return strings.ReplaceAll(strings.TrimSpace(value), "_", " ")
+}
+
+type luaPoint struct {
+	X float64
+	Y float64
+}
+
+func clamp01(value float64) float64 {
+	if value < 0 {
+		return 0
+	}
+	if value > 1 {
+		return 1
+	}
+	return value
+}
+
+func roundToStep(value float64, step float64) float64 {
+	if step <= 0 {
+		return value
+	}
+	return math.Round(value/step) * step
+}
+
+func maxInt(a int, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func makeLinearPoints(x1 float64, y1 float64, x2 float64, y2 float64, steps int, step float64, smooth bool) []map[string]any {
+	points := make([]map[string]any, 0, steps)
+	if steps <= 1 {
+		return []map[string]any{
+			{
+				"x": int(math.Round(roundToStep(x2, step))),
+				"y": int(math.Round(roundToStep(y2, step))),
+			},
+		}
+	}
+
+	for index := 0; index < steps; index++ {
+		t := float64(index) / float64(steps-1)
+		if smooth {
+			t = t * t * (3 - 2*t)
+		}
+		x := roundToStep(x1+(x2-x1)*t, step)
+		y := roundToStep(y1+(y2-y1)*t, step)
+		points = append(points, map[string]any{
+			"x": int(math.Round(x)),
+			"y": int(math.Round(y)),
+		})
+	}
+	return points
+}
+
+func makeArcPoints(cx float64, cy float64, radius float64, steps int, startAngle float64, endAngle float64, step float64) []map[string]any {
+	points := make([]map[string]any, 0, steps)
+	if steps <= 1 {
+		x := roundToStep(cx+math.Cos(endAngle)*radius, step)
+		y := roundToStep(cy+math.Sin(endAngle)*radius, step)
+		return []map[string]any{
+			{
+				"x": int(math.Round(x)),
+				"y": int(math.Round(y)),
+			},
+		}
+	}
+
+	for index := 0; index < steps; index++ {
+		t := float64(index) / float64(steps-1)
+		angle := startAngle + (endAngle-startAngle)*t
+		x := roundToStep(cx+math.Cos(angle)*radius, step)
+		y := roundToStep(cy+math.Sin(angle)*radius, step)
+		points = append(points, map[string]any{
+			"x": int(math.Round(x)),
+			"y": int(math.Round(y)),
+		})
+	}
+	return points
+}
+
+func coercePointList(value any) ([]luaPoint, error) {
+	switch typed := value.(type) {
+	case []any:
+		points := make([]luaPoint, 0, len(typed))
+		for _, item := range typed {
+			point, err := coerceLuaPoint(item)
+			if err != nil {
+				return nil, err
+			}
+			points = append(points, point)
+		}
+		return points, nil
+	default:
+		return nil, fmt.Errorf("expected an array of points")
+	}
+}
+
+func coerceLuaPoint(value any) (luaPoint, error) {
+	object, ok := value.(map[string]any)
+	if !ok {
+		return luaPoint{}, fmt.Errorf("expected point object")
+	}
+	x, ok := coerceLuaNumber(object["x"])
+	if !ok {
+		return luaPoint{}, fmt.Errorf("point x is required")
+	}
+	y, ok := coerceLuaNumber(object["y"])
+	if !ok {
+		return luaPoint{}, fmt.Errorf("point y is required")
+	}
+	return luaPoint{X: x, Y: y}, nil
+}
+
+func coerceLuaNumber(value any) (float64, bool) {
+	switch typed := value.(type) {
+	case float64:
+		return typed, true
+	case float32:
+		return float64(typed), true
+	case int:
+		return float64(typed), true
+	case int8:
+		return float64(typed), true
+	case int16:
+		return float64(typed), true
+	case int32:
+		return float64(typed), true
+	case int64:
+		return float64(typed), true
+	case uint:
+		return float64(typed), true
+	case uint8:
+		return float64(typed), true
+	case uint16:
+		return float64(typed), true
+	case uint32:
+		return float64(typed), true
+	case uint64:
+		return float64(typed), true
+	default:
+		return 0, false
+	}
+}
+
+func simplifyPoints(points []luaPoint, minDistance float64) []map[string]any {
+	if len(points) == 0 {
+		return []map[string]any{}
+	}
+	if minDistance <= 0 {
+		minDistance = 1
+	}
+	minDistanceSquared := minDistance * minDistance
+
+	result := make([]map[string]any, 0, len(points))
+	last := points[0]
+	result = append(result, map[string]any{
+		"x": int(math.Round(last.X)),
+		"y": int(math.Round(last.Y)),
+	})
+
+	for index := 1; index < len(points); index++ {
+		point := points[index]
+		dx := point.X - last.X
+		dy := point.Y - last.Y
+		if dx*dx+dy*dy < minDistanceSquared && index != len(points)-1 {
+			continue
+		}
+		result = append(result, map[string]any{
+			"x": int(math.Round(point.X)),
+			"y": int(math.Round(point.Y)),
+		})
+		last = point
+	}
+	return result
+}
+
+func hasCaptureEvidence(items []AgentTranscriptItem) bool {
+	for _, item := range items {
+		if item.Kind == "tool_output" && (item.Name == "capture_region" || item.Name == "capture_screen" || item.Name == "load_image_for_context" || item.Name == "analyze_screenshot") {
+			return true
+		}
+	}
+	return false
+}
+
+func hasVisualEvidence(items []AgentTranscriptItem) bool {
+	return hasCaptureEvidence(items)
+}
+
+func hasWindowSpace(items []AgentTranscriptItem) bool {
+	for _, item := range items {
+		if item.Kind == "tool_output" && (item.Name == "switch_to_active_window_space" || item.Name == "switch_to_window_space") {
+			return true
+		}
+	}
+	return false
+}
+
+func hasMeaningfulAction(items []AgentTranscriptItem) bool {
+	for _, item := range items {
+		if item.Kind == "tool_output" {
+			switch item.Name {
+			case "set_mouse_position", "move_mouse_line", "drag_mouse", "click_mouse", "double_click_mouse", "type_text", "type_text_block", "press_special_key", "tap_keys":
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func lastItemHasError(items []AgentTranscriptItem) bool {
+	if len(items) == 0 {
+		return false
+	}
+	last := items[len(items)-1]
+	return last.Kind == "tool_output" && strings.TrimSpace(last.Error) != ""
+}
+
+func lastAssistantLooksLikeVerification(items []AgentTranscriptItem) bool {
+	for index := len(items) - 1; index >= 0; index-- {
+		item := items[index]
+		if item.Kind != "message" || item.Role != "assistant" {
+			continue
+		}
+		text := strings.ToLower(strings.TrimSpace(item.Content))
+		return strings.Contains(text, "verified") || strings.Contains(text, "visible") || strings.Contains(text, "found") || strings.Contains(text, "focused")
+	}
+	return false
+}
+
+func newAgentCoordinateState() *agentCoordinateState {
+	return &agentCoordinateState{Mode: "screen"}
+}
+
+func cloneWindowSummary(summary WindowSummary) *WindowSummary {
+	copy := summary
+	return &copy
+}
+
+func coordinateSpaceView(state agentCoordinateState, message string) AgentCoordinateSpace {
+	view := AgentCoordinateSpace{
+		Mode:    state.Mode,
+		Origin:  Point{},
+		Message: message,
+	}
+	if state.Mode == "window" && state.Window != nil {
+		view.Window = cloneWindowSummary(*state.Window)
+		view.Origin = Point{X: state.Window.Region.Left, Y: state.Window.Region.Top}
+		return view
+	}
+	view.Mode = "screen"
+	return view
+}
+
+func translatePointToScreenSpace(point Point, state agentCoordinateState) Point {
+	if state.Mode != "window" || state.Window == nil {
+		return point
+	}
+	return Point{
+		X: state.Window.Region.Left + point.X,
+		Y: state.Window.Region.Top + point.Y,
+	}
+}
+
+func translateRegionToScreenSpace(region Region, state agentCoordinateState) Region {
+	if state.Mode != "window" || state.Window == nil {
+		return region
+	}
+	return Region{
+		Left:   state.Window.Region.Left + region.Left,
+		Top:    state.Window.Region.Top + region.Top,
+		Width:  region.Width,
+		Height: region.Height,
+	}
+}
+
+func (s *Service) loadAgentCoordinateState(previousResponseID string) *agentCoordinateState {
+	state := newAgentCoordinateState()
+	key := strings.TrimSpace(previousResponseID)
+	if key == "" {
+		return state
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	existing, ok := s.agentCoordinateStates[key]
+	if !ok {
+		return state
+	}
+	if existing.Mode != "" {
+		state.Mode = existing.Mode
+	}
+	if existing.Window != nil {
+		state.Window = cloneWindowSummary(*existing.Window)
+	}
+	return state
+}
+
+func (s *Service) saveAgentCoordinateState(responseID string, state *agentCoordinateState) {
+	key := strings.TrimSpace(responseID)
+	if key == "" || state == nil {
+		return
+	}
+
+	next := agentCoordinateState{Mode: state.Mode}
+	if next.Mode == "" {
+		next.Mode = "screen"
+	}
+	if state.Window != nil {
+		next.Window = cloneWindowSummary(*state.Window)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.agentCoordinateStates[key] = next
+}
+
 func accumulateAgentUsage(total *AgentUsage, response *responses.Response) {
 	if total == nil || response == nil {
 		return
@@ -1584,6 +2953,23 @@ func marshalToolPayload(value any) string {
 
 func emptyObjectSchema() map[string]any {
 	return objectSchema(map[string]any{})
+}
+
+func captureRequestSchema() map[string]any {
+	return objectSchema(map[string]any{
+		"file_name":        stringSchema("Optional file name for the capture."),
+		"max_image_width":  integerSchema("Optional maximum delivered image width in pixels. When positive, the capture is downscaled only if needed to fit within this bound while preserving aspect ratio."),
+		"max_image_height": integerSchema("Optional maximum delivered image height in pixels. When positive, the capture is downscaled only if needed to fit within this bound while preserving aspect ratio."),
+	})
+}
+
+func captureRegionRequestSchema() map[string]any {
+	return objectSchema(map[string]any{
+		"file_name":        stringSchema("Optional file name for the capture."),
+		"region":           regionSchema("Region to capture."),
+		"max_image_width":  integerSchema("Optional maximum delivered image width in pixels. When positive, the capture is downscaled only if needed to fit within this bound while preserving aspect ratio."),
+		"max_image_height": integerSchema("Optional maximum delivered image height in pixels. When positive, the capture is downscaled only if needed to fit within this bound while preserving aspect ratio."),
+	})
 }
 
 func keyboardKeysSchema() map[string]any {
@@ -1647,6 +3033,12 @@ func objectSchema(properties map[string]any, required ...string) map[string]any 
 	for key := range properties {
 		required = append(required, key)
 	}
+	slices.Sort(required)
+	return objectSchemaWithRequired(properties, required)
+}
+
+func objectSchemaWithRequired(properties map[string]any, required []string) map[string]any {
+	required = append([]string{}, required...)
 	slices.Sort(required)
 
 	schema := map[string]any{

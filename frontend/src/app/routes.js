@@ -54,5 +54,12 @@ export const navItems = [
     title: 'Agent',
     description: 'Chat with a model that can call gut tools.',
     glyph: '◈'
+  },
+  {
+    key: 'agent-settings',
+    path: '/agent-settings',
+    title: 'Agent settings',
+    description: 'Configure the desktop agent.',
+    glyph: '⚙'
   }
 ]

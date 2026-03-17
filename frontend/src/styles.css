@@ -322,7 +322,7 @@ select {
   grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
   min-height: 0;
-  height: 100%;
+  height: calc(100vh - 14rem);
   background:
     radial-gradient(circle at 100% 0%, rgba(68, 169, 255, 0.08), transparent 28%),
     linear-gradient(180deg, rgba(45, 37, 34, 0.96), rgba(29, 24, 22, 0.96));
@@ -334,6 +334,10 @@ select {
   grid-template-rows: auto minmax(0, 1fr);
   align-items: stretch;
   gap: 1rem;
+}
+
+.gutgd-agentPageFull {
+  min-height: calc(100vh - 10rem);
 }
 
 .gutgd-agentPage > * {
@@ -408,12 +412,13 @@ select {
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
   gap: 0.9rem;
+  height: 100%;
 }
 
 .gutgd-chatTranscript {
   display: grid;
   gap: 0.65rem;
-  min-height: 0;
+  min-height: 380px;
   max-height: none;
   overflow: auto;
   padding: 0.45rem;
@@ -606,6 +611,11 @@ select {
   .gutgd-agentIntro {
     grid-template-columns: 1fr;
     align-items: flex-start;
+  }
+
+  .gutgd-agentShell {
+    height: auto;
+    min-height: calc(100vh - 14rem);
   }
 }
 

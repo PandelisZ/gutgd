@@ -3,8 +3,10 @@ package backend
 import (
 	"errors"
 	"image"
+	"image/color"
 	"image/png"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -143,6 +145,10 @@ func TestFeatureStatusesForGOOSDarwin(t *testing.T) {
 	statuses := featureStatusesForGOOS("darwin", guttesting.Report{
 		Capabilities: common.NewCapabilitySet(
 			common.CapabilityStatus{Capability: common.CapabilityScreenCapture, Availability: common.AvailabilityUnsupported, Reason: "native fallback hidden"},
+			common.CapabilityStatus{Capability: common.CapabilityPermissionReadiness, Availability: common.AvailabilityAvailable},
+			common.CapabilityStatus{Capability: common.CapabilityAXFocusedWindowMetadata, Availability: common.AvailabilityPermissionBlocked, Reason: "Accessibility permission has not been granted"},
+			common.CapabilityStatus{Capability: common.CapabilityAXFocusedElementMetadata, Availability: common.AvailabilityUnsupported, Reason: "provider unavailable"},
+			common.CapabilityStatus{Capability: common.CapabilityAXElementAtPointMetadata, Availability: common.AvailabilityUnavailable, Reason: "temporarily disabled"},
 			common.CapabilityStatus{Capability: common.CapabilityWindowMinimize, Availability: common.AvailabilityUnsupported, Reason: "minimize unsupported"},
 			common.CapabilityStatus{Capability: common.CapabilityWindowRestore, Availability: common.AvailabilityUnsupported, Reason: "restore unsupported"},
 		),
@@ -162,9 +168,27 @@ func TestFeatureStatusesForGOOSDarwin(t *testing.T) {
 			t.Fatalf("expected %s to be hidden on darwin, got %+v", id, status)
 		}
 	}
+	for _, test := range []struct {
+		id           string
+		availability common.Availability
+	}{
+		{id: "get_permission_readiness", availability: common.AvailabilityAvailable},
+		{id: "get_focused_window_metadata", availability: common.AvailabilityPermissionBlocked},
+		{id: "get_focused_element_metadata", availability: common.AvailabilityUnsupported},
+		{id: "get_element_at_point_metadata", availability: common.AvailabilityUnavailable},
+	} {
+		status := requireFeatureStatus(t, statuses, test.id)
+		if status.Availability != string(test.availability) {
+			t.Fatalf("expected %s to preserve %s, got %+v", test.id, test.availability, status)
+		}
+	}
 	minimize := requireFeatureStatus(t, statuses, "minimize_window")
-	if minimize.Availability != string(common.AvailabilityUnavailable) || !strings.Contains(minimize.Reason, "window.minimize") {
+	if minimize.Availability != string(common.AvailabilityUnsupported) || !strings.Contains(minimize.Reason, "minimize unsupported") {
 		t.Fatalf("expected minimize_window to surface the native unsupported state, got %+v", minimize)
+	}
+	nativeFocusedWindow := requireFeatureStatus(t, statuses, string(common.CapabilityAXFocusedWindowMetadata))
+	if nativeFocusedWindow.Availability != string(common.AvailabilityPermissionBlocked) {
+		t.Fatalf("expected native focused-window capability status to remain visible, got %+v", nativeFocusedWindow)
 	}
 	nativeCapture := requireFeatureStatus(t, statuses, string(common.CapabilityScreenCapture))
 	if nativeCapture.Availability != string(common.AvailabilityUnsupported) {
@@ -179,16 +203,28 @@ func TestFeatureStatusesForGOOSNonDarwin(t *testing.T) {
 			common.CapabilityStatus{Capability: common.CapabilityKeyboardTap, Availability: common.AvailabilityAvailable},
 			common.CapabilityStatus{Capability: common.CapabilityKeyboardToggle, Availability: common.AvailabilityAvailable},
 			common.CapabilityStatus{Capability: common.CapabilityScreenHighlight, Availability: common.AvailabilityAvailable},
+			common.CapabilityStatus{Capability: common.CapabilityPermissionReadiness, Availability: common.AvailabilityAvailable},
+			common.CapabilityStatus{Capability: common.CapabilityAXFocusedWindowMetadata, Availability: common.AvailabilityPermissionBlocked, Reason: "Accessibility permission has not been granted"},
+			common.CapabilityStatus{Capability: common.CapabilityAXFocusedElementMetadata, Availability: common.AvailabilityAvailable},
+			common.CapabilityStatus{Capability: common.CapabilityAXElementAtPointMetadata, Availability: common.AvailabilityAvailable},
+			common.CapabilityStatus{Capability: common.CapabilityAXFocusedWindowRaise, Availability: common.AvailabilityAvailable},
+			common.CapabilityStatus{Capability: common.CapabilityAXFocusedElementAction, Availability: common.AvailabilityAvailable},
+			common.CapabilityStatus{Capability: common.CapabilityAXElementActionAtPoint, Availability: common.AvailabilityAvailable},
+			common.CapabilityStatus{Capability: common.CapabilityAXElementFocusAtPoint, Availability: common.AvailabilityAvailable},
 			common.CapabilityStatus{Capability: common.CapabilityWindowMinimize, Availability: common.AvailabilityAvailable},
 			common.CapabilityStatus{Capability: common.CapabilityWindowRestore, Availability: common.AvailabilityAvailable},
 		),
 	})
 
-	for _, id := range []string{"capture_screen", "capture_region", "tap_keys", "press_keys", "release_keys", "highlight_region", "minimize_window", "restore_window"} {
+	for _, id := range []string{"capture_screen", "capture_region", "tap_keys", "press_keys", "release_keys", "highlight_region", "get_permission_readiness", "get_focused_element_metadata", "get_element_at_point_metadata", "raise_focused_window", "perform_focused_element_action", "perform_element_action_at_point", "focus_element_at_point", "minimize_window", "restore_window"} {
 		status := requireFeatureStatus(t, statuses, id)
 		if status.Availability != string(common.AvailabilityAvailable) {
 			t.Fatalf("expected %s to be available off darwin, got %+v", id, status)
 		}
+	}
+	focusedWindow := requireFeatureStatus(t, statuses, "get_focused_window_metadata")
+	if focusedWindow.Availability != string(common.AvailabilityPermissionBlocked) {
+		t.Fatalf("expected get_focused_window_metadata to preserve permission_blocked, got %+v", focusedWindow)
 	}
 	pressSpecialKey := requireFeatureStatus(t, statuses, "press_special_key")
 	if pressSpecialKey.Availability != string(common.AvailabilityUnavailable) || !strings.Contains(pressSpecialKey.Reason, "only exposed on darwin") {
@@ -196,18 +232,182 @@ func TestFeatureStatusesForGOOSNonDarwin(t *testing.T) {
 	}
 }
 
+func TestGetPermissionReadinessPreservesCapabilityAvailability(t *testing.T) {
+	accessibility := &fakeBackendAccessibilityProvider{
+		permissionSnapshot: common.PermissionSnapshot{
+			Accessibility:   common.PermissionStatus{Granted: false, Supported: true, Reason: "Accessibility permission has not been granted"},
+			ScreenRecording: common.PermissionStatus{Granted: true, Supported: true, Reason: "already granted"},
+		},
+		capabilities: common.NewCapabilitySet(
+			common.CapabilityStatus{Capability: common.CapabilityPermissionReadiness, Availability: common.AvailabilityAvailable},
+			common.CapabilityStatus{Capability: common.CapabilityAXFocusedWindowMetadata, Availability: common.AvailabilityPermissionBlocked, Reason: "Accessibility permission has not been granted"},
+			common.CapabilityStatus{Capability: common.CapabilityAXFocusedElementMetadata, Availability: common.AvailabilityUnsupported, Reason: "provider unavailable"},
+			common.CapabilityStatus{Capability: common.CapabilityAXElementAtPointMetadata, Availability: common.AvailabilityUnavailable, Reason: "temporarily disabled"},
+			common.CapabilityStatus{Capability: common.CapabilityAXFocusedWindowRaise, Availability: common.AvailabilityAvailable},
+			common.CapabilityStatus{Capability: common.CapabilityAXFocusedElementAction, Availability: common.AvailabilityPermissionBlocked, Reason: "Accessibility permission has not been granted"},
+			common.CapabilityStatus{Capability: common.CapabilityAXElementActionAtPoint, Availability: common.AvailabilityUnsupported, Reason: "provider unavailable"},
+			common.CapabilityStatus{Capability: common.CapabilityAXElementFocusAtPoint, Availability: common.AvailabilityUnavailable, Reason: "temporarily disabled"},
+		),
+	}
+	service := newTestServiceWithWindowsAndAccessibility(accessibility)
+
+	result, err := service.GetPermissionReadiness()
+	if err != nil {
+		t.Fatalf("GetPermissionReadiness returned error: %v", err)
+	}
+	if !strings.Contains(result.Message, "AX metadata and action tools") {
+		t.Fatalf("expected readiness message to mention AX metadata and action tools, got %q", result.Message)
+	}
+	if result.Permissions.Accessibility.Granted || !result.Permissions.Accessibility.Supported {
+		t.Fatalf("unexpected accessibility permission snapshot: %+v", result.Permissions.Accessibility)
+	}
+	for _, test := range []struct {
+		id           string
+		availability common.Availability
+	}{
+		{id: string(common.CapabilityPermissionReadiness), availability: common.AvailabilityAvailable},
+		{id: string(common.CapabilityAXFocusedWindowMetadata), availability: common.AvailabilityPermissionBlocked},
+		{id: string(common.CapabilityAXFocusedElementMetadata), availability: common.AvailabilityUnsupported},
+		{id: string(common.CapabilityAXElementAtPointMetadata), availability: common.AvailabilityUnavailable},
+	} {
+		status := requireFeatureStatus(t, result.Capabilities, test.id)
+		if status.Availability != string(test.availability) {
+			t.Fatalf("expected %s to preserve %s, got %+v", test.id, test.availability, status)
+		}
+	}
+}
+
+func TestParseAXAction(t *testing.T) {
+	for _, action := range []string{"AXPress", "AXRaise", "AXShowMenu", "AXConfirm", "AXPick"} {
+		got, err := parseAXAction(action)
+		if err != nil {
+			t.Fatalf("parseAXAction(%q) returned error: %v", action, err)
+		}
+		if got != common.AXAction(action) {
+			t.Fatalf("parseAXAction(%q) = %q", action, got)
+		}
+	}
+
+	if _, err := parseAXAction("AXDefinitelyUnsupportedSyntheticAction"); err == nil {
+		t.Fatal("expected invalid AX action to be rejected")
+	}
+}
+
+func TestAccessibilityActionMethods(t *testing.T) {
+	accessibility := &fakeBackendAccessibilityProvider{}
+	service := newTestServiceWithWindowsAndAccessibility(accessibility)
+
+	raiseResult, err := service.RaiseFocusedWindow()
+	if err != nil {
+		t.Fatalf("RaiseFocusedWindow returned error: %v", err)
+	}
+	if !raiseResult.OK || accessibility.raiseFocusedWindowCalls != 1 {
+		t.Fatalf("unexpected raise-focused-window result: %+v calls=%d", raiseResult, accessibility.raiseFocusedWindowCalls)
+	}
+
+	focusedResult, err := service.PerformFocusedElementAction(AXActionRequest{Action: "AXConfirm"})
+	if err != nil {
+		t.Fatalf("PerformFocusedElementAction returned error: %v", err)
+	}
+	if !focusedResult.OK || accessibility.lastFocusedElementAction != common.AXConfirm {
+		t.Fatalf("unexpected focused-element action result: %+v action=%q", focusedResult, accessibility.lastFocusedElementAction)
+	}
+
+	pointActionResult, err := service.PerformElementActionAtPoint(AXActionAtPointRequest{X: 40, Y: 50, Action: "AXShowMenu"})
+	if err != nil {
+		t.Fatalf("PerformElementActionAtPoint returned error: %v", err)
+	}
+	if !pointActionResult.OK || accessibility.lastElementActionAtPoint != (shared.Point{X: 40, Y: 50}) || accessibility.lastElementActionAtPointAction != common.AXShowMenu {
+		t.Fatalf("unexpected element-at-point action result: %+v point=%+v action=%q", pointActionResult, accessibility.lastElementActionAtPoint, accessibility.lastElementActionAtPointAction)
+	}
+
+	focusResult, err := service.FocusElementAtPoint(PointRequest{X: 60, Y: 70})
+	if err != nil {
+		t.Fatalf("FocusElementAtPoint returned error: %v", err)
+	}
+	if !focusResult.OK || accessibility.lastFocusElementAtPoint != (shared.Point{X: 60, Y: 70}) {
+		t.Fatalf("unexpected focus-element-at-point result: %+v point=%+v", focusResult, accessibility.lastFocusElementAtPoint)
+	}
+}
+
+func TestAccessibilityActionMethodsRejectInvalidAction(t *testing.T) {
+	service := newTestServiceWithWindowsAndAccessibility(&fakeBackendAccessibilityProvider{})
+
+	if _, err := service.PerformFocusedElementAction(AXActionRequest{Action: "AXDefinitelyUnsupportedSyntheticAction"}); err == nil {
+		t.Fatal("expected focused-element action validation error")
+	}
+	if _, err := service.PerformElementActionAtPoint(AXActionAtPointRequest{X: 1, Y: 2, Action: "AXDefinitelyUnsupportedSyntheticAction"}); err == nil {
+		t.Fatal("expected element-at-point action validation error")
+	}
+}
+
+func TestFocusedWindowMetadataResultFromCommon(t *testing.T) {
+	result := focusedWindowMetadataResultFromCommon(common.FocusedWindowMetadata{
+		Handle:    42,
+		Title:     "Terminal",
+		Role:      "AXWindow",
+		Subrole:   "AXStandardWindow",
+		Rect:      common.Rect{X: 10, Y: 20, Width: 1280, Height: 720},
+		RectKnown: true,
+		Focused:   true,
+		Main:      true,
+		Minimized: false,
+		OwnerPID:  123,
+		OwnerName: "Terminal",
+		BundleID:  "com.apple.Terminal",
+	})
+
+	if result.Handle != 42 || result.Region.Left != 10 || result.Region.Top != 20 || result.Region.Width != 1280 || result.Region.Height != 720 {
+		t.Fatalf("unexpected focused window conversion: %+v", result)
+	}
+	if !result.RegionKnown || !result.Focused || !result.Main {
+		t.Fatalf("expected focused window booleans to be preserved, got %+v", result)
+	}
+}
+
+func TestUIElementMetadataResultFromCommon(t *testing.T) {
+	result := uiElementMetadataResultFromCommon(common.UIElementMetadata{
+		Role:        "AXButton",
+		Subrole:     "",
+		Title:       "Send",
+		Description: "Sends the message",
+		Value:       "",
+		Enabled:     true,
+		Focused:     false,
+		Frame:       common.Rect{X: 30, Y: 40, Width: 90, Height: 24},
+		FrameKnown:  true,
+		Actions:     []string{"AXPress", "AXShowMenu"},
+	})
+
+	if result.Role != "AXButton" || result.Title != "Send" || result.Frame.Left != 30 || result.Frame.Top != 40 {
+		t.Fatalf("unexpected ui element conversion: %+v", result)
+	}
+	if !result.FrameKnown || len(result.Actions) != 2 || result.Actions[0] != "AXPress" {
+		t.Fatalf("expected ui element metadata to preserve frame and actions, got %+v", result)
+	}
+}
+
 func TestCaptureResultIncludesOffset(t *testing.T) {
 	result := CaptureResult{
-		Path:    "/tmp/region.png",
-		Message: "Saved capture to /tmp/region.png",
-		Offset:  Point{X: 2860, Y: 1510},
-		Scale:   Scale{X: 2, Y: 2},
+		Path:          "/tmp/region.png",
+		Message:       "Saved capture to /tmp/region.png",
+		Offset:        Point{X: 2860, Y: 1510},
+		Scale:         Scale{X: 1, Y: 1},
+		OriginalSize:  Size{Width: 800, Height: 600},
+		DeliveredSize: Size{Width: 400, Height: 300},
+		OriginalScale: Scale{X: 2, Y: 2},
 	}
 	if result.Offset.X != 2860 || result.Offset.Y != 1510 {
 		t.Fatalf("unexpected offset: %#v", result.Offset)
 	}
-	if result.Scale.X != 2 || result.Scale.Y != 2 {
-		t.Fatalf("unexpected scale: %#v", result.Scale)
+	if result.Scale.X != 1 || result.Scale.Y != 1 {
+		t.Fatalf("unexpected delivered scale: %#v", result.Scale)
+	}
+	if result.OriginalSize != (Size{Width: 800, Height: 600}) || result.DeliveredSize != (Size{Width: 400, Height: 300}) {
+		t.Fatalf("unexpected capture sizes: %#v", result)
+	}
+	if result.OriginalScale != (Scale{X: 2, Y: 2}) {
+		t.Fatalf("unexpected original scale: %#v", result.OriginalScale)
 	}
 }
 
@@ -236,10 +436,13 @@ func TestCaptureScaleUsesImageDimensions(t *testing.T) {
 func TestCaptureMetadataRoundTrip(t *testing.T) {
 	path := t.TempDir() + "/capture.png"
 	want := CaptureResult{
-		Path:    path,
-		Message: "Saved capture",
-		Offset:  Point{X: 120, Y: 340},
-		Scale:   Scale{X: 2, Y: 2},
+		Path:          path,
+		Message:       "Saved capture",
+		Offset:        Point{X: 120, Y: 340},
+		Scale:         Scale{X: 1, Y: 1},
+		OriginalSize:  Size{Width: 800, Height: 600},
+		DeliveredSize: Size{Width: 400, Height: 300},
+		OriginalScale: Scale{X: 2, Y: 2},
 	}
 
 	if err := writeCaptureMetadata(want); err != nil {
@@ -251,9 +454,186 @@ func TestCaptureMetadataRoundTrip(t *testing.T) {
 		t.Fatalf("read capture metadata: %v", err)
 	}
 
-	if got.Path != want.Path || got.Offset != want.Offset || got.Scale != want.Scale {
+	if got.Path != want.Path || got.Offset != want.Offset || got.Scale != want.Scale || got.OriginalSize != want.OriginalSize || got.DeliveredSize != want.DeliveredSize || got.OriginalScale != want.OriginalScale {
 		t.Fatalf("unexpected capture metadata: got %#v want %#v", got, want)
 	}
+}
+
+func TestGetWindowAccessibilitySnapshotBuildsMarkdownInventory(t *testing.T) {
+	inspection := &fakeBackendElementInspectionProvider{
+		root: shared.WindowElement{
+			Role:  stringPtr("AXWindow"),
+			Title: stringPtr("Slack"),
+			Children: []shared.WindowElement{
+				{
+					Role:      stringPtr("AXButton"),
+					Title:     stringPtr("Send"),
+					IsEnabled: boolPtr(true),
+					Region:    &shared.Region{Left: 1000, Top: 700, Width: 32, Height: 24},
+				},
+				{
+					Role:      stringPtr("AXTextField"),
+					Value:     stringPtr("Draft message"),
+					IsFocused: boolPtr(true),
+					Region:    &shared.Region{Left: 400, Top: 680, Width: 560, Height: 42},
+				},
+			},
+		},
+	}
+	service := newTestServiceWithWindowsAccessibilityAndElements(nil, inspection, WindowSummary{
+		Handle: 7,
+		Title:  "Slack",
+		Region: Region{Left: 300, Top: 120, Width: 800, Height: 600},
+	})
+
+	result, err := service.GetWindowAccessibilitySnapshot(WindowAccessibilitySnapshotRequest{Handle: 7})
+	if err != nil {
+		t.Fatalf("GetWindowAccessibilitySnapshot returned error: %v", err)
+	}
+	if result.SnapshotID == "" {
+		t.Fatal("expected non-empty snapshot ID")
+	}
+	if result.ElementCount != 3 {
+		t.Fatalf("expected 3 flattened elements, got %d", result.ElementCount)
+	}
+	if inspection.lastHandle != shared.WindowHandle(7) {
+		t.Fatalf("expected inspection provider to receive handle 7, got %v", inspection.lastHandle)
+	}
+	if !strings.Contains(result.Markdown, "Window accessibility snapshot") || !strings.Contains(result.Markdown, "`el-002`") || !strings.Contains(result.Markdown, "Send") {
+		t.Fatalf("unexpected markdown snapshot:\n%s", result.Markdown)
+	}
+	if len(result.Elements) < 2 || result.Elements[1].ID == "" || result.Elements[1].ScreenRegion == nil {
+		t.Fatalf("unexpected element list: %#v", result.Elements)
+	}
+}
+
+func TestActOnWindowAccessibilityElementFocusUsesCachedScreenRegion(t *testing.T) {
+	accessibility := &fakeBackendAccessibilityProvider{}
+	inspection := &fakeBackendElementInspectionProvider{
+		root: shared.WindowElement{
+			Role: stringPtr("AXWindow"),
+			Children: []shared.WindowElement{
+				{
+					Role:   stringPtr("AXButton"),
+					Title:  stringPtr("Send"),
+					Region: &shared.Region{Left: 1000, Top: 700, Width: 32, Height: 24},
+				},
+			},
+		},
+	}
+	service := newTestServiceWithWindowsAccessibilityAndElements(accessibility, inspection, WindowSummary{
+		Handle: 7,
+		Title:  "Slack",
+		Region: Region{Left: 300, Top: 120, Width: 800, Height: 600},
+	})
+
+	snapshot, err := service.GetWindowAccessibilitySnapshot(WindowAccessibilitySnapshotRequest{Handle: 7})
+	if err != nil {
+		t.Fatalf("GetWindowAccessibilitySnapshot returned error: %v", err)
+	}
+
+	result, err := service.ActOnWindowAccessibilityElement(WindowAccessibilityElementActionRequest{
+		SnapshotID: snapshot.SnapshotID,
+		ElementID:  snapshot.Elements[1].ID,
+		Action:     "focus",
+	})
+	if err != nil {
+		t.Fatalf("ActOnWindowAccessibilityElement returned error: %v", err)
+	}
+	if result.ScreenPoint != (Point{X: 1016, Y: 712}) {
+		t.Fatalf("unexpected action screen point: %+v", result.ScreenPoint)
+	}
+	if accessibility.lastFocusElementAtPoint != (shared.Point{X: 1016, Y: 712}) {
+		t.Fatalf("unexpected focused point: %+v", accessibility.lastFocusElementAtPoint)
+	}
+}
+
+func TestPlanCaptureDeliveredSizeNoOpWithoutBounds(t *testing.T) {
+	size := planCaptureDeliveredSize(Size{Width: 800, Height: 600}, 0, 0)
+	if size != (Size{Width: 800, Height: 600}) {
+		t.Fatalf("expected no-op delivered size, got %#v", size)
+	}
+}
+
+func TestPlanCaptureDeliveredSizeDownscalesWithinBounds(t *testing.T) {
+	size := planCaptureDeliveredSize(Size{Width: 800, Height: 600}, 400, 250)
+	if size != (Size{Width: 333, Height: 250}) {
+		t.Fatalf("unexpected downscaled size: %#v", size)
+	}
+}
+
+func TestTranslateDeliveredImagePointToScreenUsesOriginalAndDeliveredSpaces(t *testing.T) {
+	result, err := translateDeliveredImagePointToScreen(CaptureResult{
+		Path:          "/tmp/capture.png",
+		Message:       "Saved capture",
+		Offset:        Point{X: 50, Y: 80},
+		Scale:         Scale{X: 1, Y: 1},
+		OriginalSize:  Size{Width: 800, Height: 600},
+		DeliveredSize: Size{Width: 400, Height: 300},
+		OriginalScale: Scale{X: 2, Y: 2},
+	}, Point{X: 120, Y: 40})
+	if err != nil {
+		t.Fatalf("translateDeliveredImagePointToScreen returned error: %v", err)
+	}
+	if result.OriginalImagePoint != (ImagePoint{X: 240, Y: 80}) {
+		t.Fatalf("unexpected original image point: %+v", result.OriginalImagePoint)
+	}
+	if result.ExactScreenPoint != (ImagePoint{X: 170, Y: 120}) {
+		t.Fatalf("unexpected exact screen point: %+v", result.ExactScreenPoint)
+	}
+	if result.AbsoluteScreenPoint != (Point{X: 170, Y: 120}) {
+		t.Fatalf("unexpected absolute screen point: %+v", result.AbsoluteScreenPoint)
+	}
+}
+
+func TestTranslateDeliveredImagePointToScreenSupportsRetinaDownscaledExample(t *testing.T) {
+	result, err := translateDeliveredImagePointToScreen(CaptureResult{
+		Path:          "/tmp/retina-capture.png",
+		Message:       "Saved capture",
+		Offset:        Point{X: 2860, Y: 1510},
+		Scale:         Scale{X: 1, Y: 1},
+		OriginalSize:  Size{Width: 1200, Height: 900},
+		DeliveredSize: Size{Width: 600, Height: 450},
+		OriginalScale: Scale{X: 2, Y: 2},
+	}, Point{X: 200, Y: 100})
+	if err != nil {
+		t.Fatalf("translateDeliveredImagePointToScreen returned error: %v", err)
+	}
+	if result.OriginalImagePoint != (ImagePoint{X: 400, Y: 200}) {
+		t.Fatalf("unexpected original image point: %+v", result.OriginalImagePoint)
+	}
+	if result.AbsoluteScreenPoint != (Point{X: 3060, Y: 1610}) {
+		t.Fatalf("unexpected retina absolute screen point: %+v", result.AbsoluteScreenPoint)
+	}
+	if result.Capture.Scale != (Scale{X: 1, Y: 1}) || result.Capture.OriginalScale != (Scale{X: 2, Y: 2}) {
+		t.Fatalf("unexpected capture scale metadata: %+v", result.Capture)
+	}
+}
+
+func TestTranslateDeliveredImagePointToScreenRejectsOutOfBoundsPoint(t *testing.T) {
+	_, err := translateDeliveredImagePointToScreen(CaptureResult{
+		Path:          "/tmp/capture.png",
+		Message:       "Saved capture",
+		Offset:        Point{X: 0, Y: 0},
+		Scale:         Scale{X: 1, Y: 1},
+		OriginalSize:  Size{Width: 800, Height: 600},
+		DeliveredSize: Size{Width: 400, Height: 300},
+		OriginalScale: Scale{X: 2, Y: 2},
+	}, Point{X: 400, Y: 10})
+	if err == nil {
+		t.Fatal("expected out-of-bounds delivered point to fail")
+	}
+	if !strings.Contains(err.Error(), "outside delivered image bounds") {
+		t.Fatalf("expected bounds error, got %v", err)
+	}
+}
+
+func stringPtr(value string) *string {
+	return &value
+}
+
+func boolPtr(value bool) *bool {
+	return &value
 }
 
 func TestDarwinSpecialKeyHelpers(t *testing.T) {
@@ -272,6 +652,38 @@ func TestDarwinSpecialKeyHelpers(t *testing.T) {
 	script := darwinSpecialKeyScript(36, 2)
 	if script == "" || !strings.Contains(script, "repeat 2 times") || !strings.Contains(script, "key code 36") {
 		t.Fatalf("unexpected special key script: %q", script)
+	}
+}
+
+func TestFindWindowByHandleReturnsSummaryForKnownHandle(t *testing.T) {
+	service := newTestServiceWithWindows(WindowSummary{
+		Handle: 7,
+		Title:  "Slack",
+		Region: Region{Left: 300, Top: 120, Width: 800, Height: 600},
+	})
+
+	window, err := service.FindWindowByHandle(WindowHandleRequest{Handle: 7})
+	if err != nil {
+		t.Fatalf("expected known handle lookup to succeed, got %v", err)
+	}
+	if window.Handle != 7 || window.Title != "Slack" || window.Region.Left != 300 || window.Region.Top != 120 {
+		t.Fatalf("unexpected window summary: %#v", window)
+	}
+}
+
+func TestFindWindowByHandleRejectsUnknownHandle(t *testing.T) {
+	service := newTestServiceWithWindows(WindowSummary{
+		Handle: 7,
+		Title:  "Slack",
+		Region: Region{Left: 300, Top: 120, Width: 800, Height: 600},
+	})
+
+	_, err := service.FindWindowByHandle(WindowHandleRequest{Handle: 999})
+	if !errors.Is(err, errWindowHandleNotFound) {
+		t.Fatalf("expected errWindowHandleNotFound, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "999") {
+		t.Fatalf("expected invalid handle error to include the missing handle, got %v", err)
 	}
 }
 
@@ -309,4 +721,155 @@ func requireFeatureStatus(t *testing.T, statuses []FeatureStatus, id string) Fea
 	}
 	t.Fatalf("missing feature status %q in %#v", id, statuses)
 	return FeatureStatus{}
+}
+
+func TestCaptureCropBoundsAppliesScale(t *testing.T) {
+	bounds, err := captureCropBounds(
+		Region{Left: 10, Top: 20, Width: 30, Height: 40},
+		Scale{X: 2, Y: 1.5},
+		image.Rect(0, 0, 200, 200),
+	)
+	if err != nil {
+		t.Fatalf("captureCropBounds returned error: %v", err)
+	}
+
+	want := image.Rect(20, 30, 80, 90)
+	if bounds != want {
+		t.Fatalf("unexpected crop bounds: got %v want %v", bounds, want)
+	}
+}
+
+func TestCaptureCropBoundsRoundsOutwardForFractionalScale(t *testing.T) {
+	bounds, err := captureCropBounds(
+		Region{Left: 1, Top: 2, Width: 3, Height: 4},
+		Scale{X: 1.5, Y: 1.5},
+		image.Rect(0, 0, 20, 20),
+	)
+	if err != nil {
+		t.Fatalf("captureCropBounds returned error: %v", err)
+	}
+
+	want := image.Rect(1, 3, 6, 9)
+	if bounds != want {
+		t.Fatalf("unexpected fractional crop bounds: got %v want %v", bounds, want)
+	}
+}
+
+func TestCaptureCropBoundsRejectsOutOfBoundsRegion(t *testing.T) {
+	_, err := captureCropBounds(
+		Region{Left: 80, Top: 10, Width: 30, Height: 20},
+		Scale{X: 2, Y: 2},
+		image.Rect(0, 0, 200, 200),
+	)
+	if err == nil {
+		t.Fatal("expected out-of-bounds crop to fail")
+	}
+	if !strings.Contains(err.Error(), "outside captured screen bounds") {
+		t.Fatalf("expected out-of-bounds error, got %v", err)
+	}
+}
+
+func TestCropCapturedRegionWritesCroppedImage(t *testing.T) {
+	dir := t.TempDir()
+	sourcePath := filepath.Join(dir, "source.png")
+	destPath := filepath.Join(dir, "cropped.png")
+
+	source := image.NewRGBA(image.Rect(0, 0, 8, 6))
+	for y := 0; y < source.Bounds().Dy(); y++ {
+		for x := 0; x < source.Bounds().Dx(); x++ {
+			source.Set(x, y, color.RGBA{R: uint8(x * 10), G: uint8(y * 20), B: uint8(x + y), A: 255})
+		}
+	}
+	writePNG(t, sourcePath, source)
+
+	region := Region{Left: 1, Top: 1, Width: 2, Height: 2}
+	if err := cropCapturedRegion(sourcePath, destPath, region, Scale{X: 2, Y: 2}); err != nil {
+		t.Fatalf("cropCapturedRegion returned error: %v", err)
+	}
+
+	cropped := readPNG(t, destPath)
+	if cropped.Bounds().Dx() != 4 || cropped.Bounds().Dy() != 4 {
+		t.Fatalf("unexpected cropped size: %v", cropped.Bounds())
+	}
+	if got := color.RGBAModel.Convert(cropped.At(0, 0)).(color.RGBA); got != (color.RGBA{R: 20, G: 40, B: 4, A: 255}) {
+		t.Fatalf("unexpected cropped top-left pixel: %#v", got)
+	}
+	if got := color.RGBAModel.Convert(cropped.At(3, 3)).(color.RGBA); got != (color.RGBA{R: 50, G: 100, B: 10, A: 255}) {
+		t.Fatalf("unexpected cropped bottom-right pixel: %#v", got)
+	}
+
+	scale := captureScale(destPath, Size{Width: region.Width, Height: region.Height})
+	if scale.X != 2 || scale.Y != 2 {
+		t.Fatalf("expected cropped capture scale to remain 2x, got %#v", scale)
+	}
+}
+
+func TestCaptureRegionResultPreservesRequestedOffsetAndDeliveredScale(t *testing.T) {
+	result := captureRegionResult(
+		"/tmp/region.png",
+		Region{Left: 2860, Top: 1510, Width: 400, Height: 300},
+		Scale{X: 2, Y: 2},
+		Size{Width: 800, Height: 600},
+		Size{Width: 400, Height: 300},
+	)
+
+	if result.Offset != (Point{X: 2860, Y: 1510}) {
+		t.Fatalf("unexpected offset: %#v", result.Offset)
+	}
+	if result.Scale != (Scale{X: 1, Y: 1}) {
+		t.Fatalf("unexpected delivered scale: %#v", result.Scale)
+	}
+	if result.OriginalScale != (Scale{X: 2, Y: 2}) {
+		t.Fatalf("unexpected original scale: %#v", result.OriginalScale)
+	}
+	if result.OriginalSize != (Size{Width: 800, Height: 600}) || result.DeliveredSize != (Size{Width: 400, Height: 300}) {
+		t.Fatalf("unexpected capture sizes: %#v", result)
+	}
+}
+
+func TestCaptureRegionResultNormalizesInvalidScale(t *testing.T) {
+	result := captureRegionResult(
+		"/tmp/region.png",
+		Region{Left: 10, Top: 20, Width: 30, Height: 40},
+		Scale{},
+		Size{Width: 30, Height: 40},
+		Size{Width: 30, Height: 40},
+	)
+
+	if result.Scale != (Scale{X: 1, Y: 1}) {
+		t.Fatalf("unexpected normalized delivered scale: %#v", result.Scale)
+	}
+	if result.OriginalScale != (Scale{X: 1, Y: 1}) {
+		t.Fatalf("unexpected normalized original scale: %#v", result.OriginalScale)
+	}
+}
+
+func writePNG(t *testing.T, path string, img image.Image) {
+	t.Helper()
+
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create png %s: %v", path, err)
+	}
+	defer file.Close()
+
+	if err := png.Encode(file, img); err != nil {
+		t.Fatalf("encode png %s: %v", path, err)
+	}
+}
+
+func readPNG(t *testing.T, path string) image.Image {
+	t.Helper()
+
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("open png %s: %v", path, err)
+	}
+	defer file.Close()
+
+	img, err := png.Decode(file)
+	if err != nil {
+		t.Fatalf("decode png %s: %v", path, err)
+	}
+	return img
 }

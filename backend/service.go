@@ -3,11 +3,14 @@ package backend
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
-	_ "image/gif"
-	_ "image/jpeg"
-	_ "image/png"
+	"image/draw"
+	"image/gif"
+	"image/jpeg"
+	"image/png"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -56,12 +59,13 @@ func requiredCapabilitiesForGOOS(goos string) []common.Capability {
 }
 
 type Service struct {
-	mu                    sync.Mutex
-	nut                   *gut.Nut
-	clipboard             *clipboard.SystemProvider
-	artifactDir           string
-	emitEvent             func(string, any)
-	agentCoordinateStates map[string]agentCoordinateState
+	mu                     sync.Mutex
+	nut                    *gut.Nut
+	clipboard              *clipboard.SystemProvider
+	artifactDir            string
+	emitEvent              func(string, any)
+	agentCoordinateStates  map[string]agentCoordinateState
+	accessibilitySnapshots map[string]windowAccessibilitySnapshotCache
 }
 
 type ActionResult struct {
@@ -104,10 +108,108 @@ type WindowSummary struct {
 	Region Region `json:"region"`
 }
 
+var errWindowHandleNotFound = errors.New("window handle not found")
+
 type FeatureStatus struct {
 	ID           string `json:"id"`
 	Availability string `json:"availability"`
 	Reason       string `json:"reason"`
+}
+
+type PermissionStatusResult struct {
+	Granted   bool   `json:"granted"`
+	Supported bool   `json:"supported"`
+	Reason    string `json:"reason"`
+}
+
+type PermissionSnapshotResult struct {
+	Accessibility   PermissionStatusResult `json:"accessibility"`
+	ScreenRecording PermissionStatusResult `json:"screen_recording"`
+}
+
+type PermissionReadinessResult struct {
+	Permissions  PermissionSnapshotResult `json:"permissions"`
+	Capabilities []FeatureStatus          `json:"capabilities"`
+	Message      string                   `json:"message"`
+}
+
+type FocusedWindowMetadataResult struct {
+	Handle      uint64 `json:"handle"`
+	Title       string `json:"title"`
+	Role        string `json:"role"`
+	Subrole     string `json:"subrole"`
+	Region      Region `json:"region"`
+	RegionKnown bool   `json:"region_known"`
+	Focused     bool   `json:"focused"`
+	Main        bool   `json:"main"`
+	Minimized   bool   `json:"minimized"`
+	OwnerPID    int    `json:"owner_pid"`
+	OwnerName   string `json:"owner_name"`
+	BundleID    string `json:"bundle_id"`
+}
+
+type UIElementMetadataResult struct {
+	Role        string   `json:"role"`
+	Subrole     string   `json:"subrole"`
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	Value       string   `json:"value"`
+	Enabled     bool     `json:"enabled"`
+	Focused     bool     `json:"focused"`
+	Frame       Region   `json:"frame"`
+	FrameKnown  bool     `json:"frame_known"`
+	Actions     []string `json:"actions"`
+}
+
+type WindowAccessibilitySnapshotRequest struct {
+	Handle uint64 `json:"handle"`
+}
+
+type WindowAccessibilityElement struct {
+	ID               string   `json:"id"`
+	Path             string   `json:"path"`
+	Depth            int      `json:"depth"`
+	Type             string   `json:"type"`
+	Role             string   `json:"role"`
+	Subrole          string   `json:"subrole"`
+	Title            string   `json:"title"`
+	Value            string   `json:"value"`
+	SelectedText     string   `json:"selected_text"`
+	EnabledKnown     bool     `json:"enabled_known"`
+	Enabled          bool     `json:"enabled"`
+	FocusedKnown     bool     `json:"focused_known"`
+	Focused          bool     `json:"focused"`
+	ScreenRegion     *Region  `json:"screen_region,omitempty"`
+	AvailableActions []string `json:"available_actions"`
+}
+
+type WindowAccessibilitySnapshotResult struct {
+	SnapshotID   string                       `json:"snapshot_id"`
+	Window       WindowSummary                `json:"window"`
+	ElementCount int                          `json:"element_count"`
+	Elements     []WindowAccessibilityElement `json:"elements"`
+	Markdown     string                       `json:"markdown"`
+	Message      string                       `json:"message"`
+}
+
+type WindowAccessibilityElementActionRequest struct {
+	SnapshotID string `json:"snapshot_id"`
+	ElementID  string `json:"element_id"`
+	Action     string `json:"action"`
+}
+
+type WindowAccessibilityElementActionResult struct {
+	SnapshotID  string       `json:"snapshot_id"`
+	ElementID   string       `json:"element_id"`
+	Action      string       `json:"action"`
+	ScreenPoint Point        `json:"screen_point"`
+	Result      ActionResult `json:"result"`
+	Message     string       `json:"message"`
+}
+
+type windowAccessibilitySnapshotCache struct {
+	Window   WindowSummary
+	Elements map[string]WindowAccessibilityElement
 }
 
 type DiagnosticsResponse struct {
@@ -167,24 +269,56 @@ type MouseDragRequest struct {
 }
 
 type CaptureRequest struct {
-	FileName string `json:"file_name"`
+	FileName       string `json:"file_name"`
+	MaxImageWidth  int    `json:"max_image_width"`
+	MaxImageHeight int    `json:"max_image_height"`
 }
 
 type CaptureRegionRequest struct {
-	FileName string `json:"file_name"`
-	Region   Region `json:"region"`
+	FileName       string `json:"file_name"`
+	Region         Region `json:"region"`
+	MaxImageWidth  int    `json:"max_image_width"`
+	MaxImageHeight int    `json:"max_image_height"`
 }
 
 type CaptureResult struct {
-	Path    string `json:"path"`
-	Message string `json:"message"`
-	Offset  Point  `json:"offset"`
-	Scale   Scale  `json:"scale"`
+	Path          string `json:"path"`
+	Message       string `json:"message"`
+	Offset        Point  `json:"offset"`
+	Scale         Scale  `json:"scale"`
+	OriginalSize  Size   `json:"original_size"`
+	DeliveredSize Size   `json:"delivered_size"`
+	OriginalScale Scale  `json:"original_scale"`
+}
+
+type ImagePoint struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+}
+
+type ImagePointTranslationResult struct {
+	Path                    string        `json:"path"`
+	RequestedDeliveredPoint Point         `json:"requested_delivered_point"`
+	OriginalImagePoint      ImagePoint    `json:"original_image_point"`
+	ExactScreenPoint        ImagePoint    `json:"exact_screen_point"`
+	AbsoluteScreenPoint     Point         `json:"absolute_screen_point"`
+	Capture                 CaptureResult `json:"capture"`
+	Message                 string        `json:"message"`
 }
 
 type PointRequest struct {
 	X int `json:"x"`
 	Y int `json:"y"`
+}
+
+type AXActionRequest struct {
+	Action string `json:"action"`
+}
+
+type AXActionAtPointRequest struct {
+	X      int    `json:"x"`
+	Y      int    `json:"y"`
+	Action string `json:"action"`
 }
 
 type ColorPointResult struct {
@@ -250,10 +384,11 @@ type ColorQueryRequest struct {
 
 func NewService() *Service {
 	return &Service{
-		nut:                   gut.NewDefault(),
-		clipboard:             clipboard.NewSystemProvider(),
-		artifactDir:           filepath.Join(".", ".artifacts"),
-		agentCoordinateStates: make(map[string]agentCoordinateState),
+		nut:                    gut.NewDefault(),
+		clipboard:              clipboard.NewSystemProvider(),
+		artifactDir:            filepath.Join(".", ".artifacts"),
+		agentCoordinateStates:  make(map[string]agentCoordinateState),
+		accessibilitySnapshots: make(map[string]windowAccessibilitySnapshotCache),
 	}
 }
 
@@ -276,6 +411,281 @@ func (s *Service) GetDiagnostics(mutable bool) (DiagnosticsResponse, error) {
 		ArtifactsPath: s.artifactDir,
 		WorkingDir:    workingDir,
 		Runtime:       fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
+	}, nil
+}
+
+func (s *Service) GetPermissionReadiness() (PermissionReadinessResult, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	accessibility, err := s.nut.Registry.Accessibility()
+	if err != nil {
+		return PermissionReadinessResult{}, err
+	}
+
+	snapshot, err := accessibility.GetPermissionSnapshot(ctx)
+	if err != nil {
+		return PermissionReadinessResult{}, err
+	}
+
+	capabilities := accessibility.Capabilities()
+	return PermissionReadinessResult{
+		Permissions: permissionSnapshotResultFromCommon(snapshot),
+		Capabilities: []FeatureStatus{
+			capabilityFeatureStatus(capabilities.Status(common.CapabilityPermissionReadiness), "available through the native accessibility permission readiness backend"),
+			capabilityFeatureStatus(capabilities.Status(common.CapabilityAXFocusedWindowMetadata), "available through the native focused-window accessibility metadata backend"),
+			capabilityFeatureStatus(capabilities.Status(common.CapabilityAXFocusedElementMetadata), "available through the native focused-element accessibility metadata backend"),
+			capabilityFeatureStatus(capabilities.Status(common.CapabilityAXElementAtPointMetadata), "available through the native element-at-point accessibility metadata backend"),
+			capabilityFeatureStatus(capabilities.Status(common.CapabilityAXFocusedWindowRaise), "available through the native focused-window accessibility action backend"),
+			capabilityFeatureStatus(capabilities.Status(common.CapabilityAXFocusedElementAction), "available through the native focused-element accessibility action backend"),
+			capabilityFeatureStatus(capabilities.Status(common.CapabilityAXElementActionAtPoint), "available through the native element-at-point accessibility action backend"),
+			capabilityFeatureStatus(capabilities.Status(common.CapabilityAXElementFocusAtPoint), "available through the native element-at-point accessibility focus backend"),
+		},
+		Message: "These accessibility capability entries back the AX metadata and action tools.",
+	}, nil
+}
+
+func (s *Service) GetFocusedWindowMetadata() (FocusedWindowMetadataResult, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	accessibility, err := s.nut.Registry.Accessibility()
+	if err != nil {
+		return FocusedWindowMetadataResult{}, err
+	}
+
+	metadata, err := accessibility.GetFocusedWindow(ctx)
+	if err != nil {
+		return FocusedWindowMetadataResult{}, err
+	}
+	return focusedWindowMetadataResultFromCommon(metadata), nil
+}
+
+func (s *Service) GetFocusedElementMetadata() (UIElementMetadataResult, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	accessibility, err := s.nut.Registry.Accessibility()
+	if err != nil {
+		return UIElementMetadataResult{}, err
+	}
+
+	metadata, err := accessibility.GetFocusedElement(ctx)
+	if err != nil {
+		return UIElementMetadataResult{}, err
+	}
+	return uiElementMetadataResultFromCommon(metadata), nil
+}
+
+func (s *Service) GetElementAtPointMetadata(req PointRequest) (UIElementMetadataResult, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	accessibility, err := s.nut.Registry.Accessibility()
+	if err != nil {
+		return UIElementMetadataResult{}, err
+	}
+
+	metadata, err := accessibility.GetElementAtPoint(ctx, shared.Point{X: req.X, Y: req.Y})
+	if err != nil {
+		return UIElementMetadataResult{}, err
+	}
+	return uiElementMetadataResultFromCommon(metadata), nil
+}
+
+func (s *Service) RaiseFocusedWindow() (ActionResult, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	accessibility, err := s.nut.Registry.Accessibility()
+	if err != nil {
+		return ActionResult{}, err
+	}
+	if err := accessibility.RaiseFocusedWindow(ctx); err != nil {
+		return ActionResult{}, err
+	}
+	return ActionResult{OK: true, Message: "Raised focused window"}, nil
+}
+
+func (s *Service) PerformFocusedElementAction(req AXActionRequest) (ActionResult, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	action, err := parseAXAction(req.Action)
+	if err != nil {
+		return ActionResult{}, err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	accessibility, err := s.nut.Registry.Accessibility()
+	if err != nil {
+		return ActionResult{}, err
+	}
+	if err := accessibility.PerformFocusedElementAction(ctx, action); err != nil {
+		return ActionResult{}, err
+	}
+	return ActionResult{OK: true, Message: fmt.Sprintf("Performed %s on focused element", action)}, nil
+}
+
+func (s *Service) PerformElementActionAtPoint(req AXActionAtPointRequest) (ActionResult, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	action, err := parseAXAction(req.Action)
+	if err != nil {
+		return ActionResult{}, err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	accessibility, err := s.nut.Registry.Accessibility()
+	if err != nil {
+		return ActionResult{}, err
+	}
+	if err := accessibility.PerformElementActionAtPoint(ctx, shared.Point{X: req.X, Y: req.Y}, action); err != nil {
+		return ActionResult{}, err
+	}
+	return ActionResult{OK: true, Message: fmt.Sprintf("Performed %s at (%d, %d)", action, req.X, req.Y)}, nil
+}
+
+func (s *Service) FocusElementAtPoint(req PointRequest) (ActionResult, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	accessibility, err := s.nut.Registry.Accessibility()
+	if err != nil {
+		return ActionResult{}, err
+	}
+	if err := accessibility.FocusElementAtPoint(ctx, shared.Point{X: req.X, Y: req.Y}); err != nil {
+		return ActionResult{}, err
+	}
+	return ActionResult{OK: true, Message: fmt.Sprintf("Focused element at (%d, %d)", req.X, req.Y)}, nil
+}
+
+func (s *Service) GetWindowAccessibilitySnapshot(req WindowAccessibilitySnapshotRequest) (WindowAccessibilitySnapshotResult, error) {
+	const defaultMaxWindowAccessibilityElements = 400
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	window, err := s.windowForAccessibilitySnapshot(ctx, req.Handle)
+	if err != nil {
+		return WindowAccessibilitySnapshotResult{}, err
+	}
+	summary, err := s.windowSummary(ctx, window)
+	if err != nil {
+		return WindowAccessibilitySnapshotResult{}, err
+	}
+	root, err := window.GetElements(ctx, defaultMaxWindowAccessibilityElements)
+	if err != nil {
+		return WindowAccessibilitySnapshotResult{}, err
+	}
+
+	elements, cache := flattenWindowAccessibilityElements(root)
+	snapshotID := fmt.Sprintf("axwin-%d-%d", summary.Handle, time.Now().UnixNano())
+	cache.Window = summary
+	s.accessibilitySnapshots[snapshotID] = cache
+
+	return WindowAccessibilitySnapshotResult{
+		SnapshotID:   snapshotID,
+		Window:       summary,
+		ElementCount: len(elements),
+		Elements:     elements,
+		Markdown:     formatWindowAccessibilitySnapshotMarkdown(snapshotID, summary, elements),
+		Message:      fmt.Sprintf("Captured %d accessible elements for window %q.", len(elements), summary.Title),
+	}, nil
+}
+
+func (s *Service) ActOnWindowAccessibilityElement(req WindowAccessibilityElementActionRequest) (WindowAccessibilityElementActionResult, error) {
+	snapshotID := strings.TrimSpace(req.SnapshotID)
+	elementID := strings.TrimSpace(req.ElementID)
+	action := strings.ToLower(strings.TrimSpace(req.Action))
+	if snapshotID == "" {
+		return WindowAccessibilityElementActionResult{}, fmt.Errorf("snapshot_id is required")
+	}
+	if elementID == "" {
+		return WindowAccessibilityElementActionResult{}, fmt.Errorf("element_id is required")
+	}
+	if action == "" {
+		return WindowAccessibilityElementActionResult{}, fmt.Errorf("action is required")
+	}
+
+	s.mu.Lock()
+	snapshot, ok := s.accessibilitySnapshots[snapshotID]
+	if !ok {
+		s.mu.Unlock()
+		return WindowAccessibilityElementActionResult{}, fmt.Errorf("unknown snapshot_id %q", snapshotID)
+	}
+	element, ok := snapshot.Elements[elementID]
+	s.mu.Unlock()
+	if !ok {
+		return WindowAccessibilityElementActionResult{}, fmt.Errorf("unknown element_id %q for snapshot %q", elementID, snapshotID)
+	}
+	if element.ScreenRegion == nil {
+		return WindowAccessibilityElementActionResult{}, fmt.Errorf("element %q does not expose a known screen region", elementID)
+	}
+
+	screenPoint := centerPoint(*element.ScreenRegion)
+	var result ActionResult
+	var err error
+
+	switch action {
+	case "focus":
+		result, err = s.FocusElementAtPoint(PointRequest{X: screenPoint.X, Y: screenPoint.Y})
+	case "click":
+		if _, err = s.SetMousePosition(MouseMoveRequest{X: screenPoint.X, Y: screenPoint.Y}); err == nil {
+			result, err = s.ClickMouse(MouseButtonRequest{Button: "left"})
+		}
+	case "double_click":
+		if _, err = s.SetMousePosition(MouseMoveRequest{X: screenPoint.X, Y: screenPoint.Y}); err == nil {
+			result, err = s.DoubleClickMouse(MouseButtonRequest{Button: "left"})
+		}
+	case "right_click":
+		if _, err = s.SetMousePosition(MouseMoveRequest{X: screenPoint.X, Y: screenPoint.Y}); err == nil {
+			result, err = s.ClickMouse(MouseButtonRequest{Button: "right"})
+		}
+	case "show_menu":
+		if _, err = s.SetMousePosition(MouseMoveRequest{X: screenPoint.X, Y: screenPoint.Y}); err == nil {
+			result, err = s.ClickMouse(MouseButtonRequest{Button: "right"})
+		}
+	default:
+		return WindowAccessibilityElementActionResult{}, fmt.Errorf("unsupported action %q", req.Action)
+	}
+	if err != nil {
+		return WindowAccessibilityElementActionResult{}, err
+	}
+
+	return WindowAccessibilityElementActionResult{
+		SnapshotID:  snapshotID,
+		ElementID:   elementID,
+		Action:      action,
+		ScreenPoint: screenPoint,
+		Result:      result,
+		Message:     fmt.Sprintf("Executed %s on %s at (%d, %d).", action, elementID, screenPoint.X, screenPoint.Y),
 	}, nil
 }
 
@@ -399,6 +809,18 @@ func (s *Service) DoubleClickMouse(req MouseButtonRequest) (ActionResult, error)
 	}, "Double-clicked")
 }
 
+func (s *Service) MouseDown(req MouseButtonRequest) (ActionResult, error) {
+	return s.runMouseButton(req, func(ctx context.Context, button shared.Button) error {
+		return s.nut.Mouse.PressButton(ctx, button)
+	}, "Pressed")
+}
+
+func (s *Service) MouseUp(req MouseButtonRequest) (ActionResult, error) {
+	return s.runMouseButton(req, func(ctx context.Context, button shared.Button) error {
+		return s.nut.Mouse.ReleaseButton(ctx, button)
+	}, "Released")
+}
+
 func (s *Service) ScrollMouse(req MouseScrollRequest) (ActionResult, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -471,21 +893,20 @@ func (s *Service) GetScreenSize() (ScreenSizeResult, error) {
 
 func (s *Service) CaptureScreen(req CaptureRequest) (CaptureResult, error) {
 	if runtime.GOOS == "darwin" {
-		return s.captureWithCommand("", req.FileName, Point{}, Size{})
+		return s.captureWithCommand(req.FileName, Point{}, Size{}, req.MaxImageWidth, req.MaxImageHeight)
+	}
+	screenSize, err := s.GetScreenSize()
+	if err != nil {
+		return CaptureResult{}, err
 	}
 	return s.capture(func(ctx context.Context, path string) (string, error) {
 		return s.nut.Screen.Capture(ctx, path)
-	}, req.FileName, Point{})
+	}, req.FileName, Point{}, Size{Width: screenSize.Width, Height: screenSize.Height}, req.MaxImageWidth, req.MaxImageHeight)
 }
 
 func (s *Service) CaptureRegion(req CaptureRegionRequest) (CaptureResult, error) {
 	if runtime.GOOS == "darwin" {
-		return s.captureWithCommand(
-			fmt.Sprintf("%d,%d,%d,%d", req.Region.Left, req.Region.Top, req.Region.Width, req.Region.Height),
-			req.FileName,
-			Point{X: req.Region.Left, Y: req.Region.Top},
-			Size{Width: req.Region.Width, Height: req.Region.Height},
-		)
+		return s.captureRegionWithCommand(req.FileName, req.Region, req.MaxImageWidth, req.MaxImageHeight)
 	}
 	region := shared.Region{
 		Left:   req.Region.Left,
@@ -495,7 +916,7 @@ func (s *Service) CaptureRegion(req CaptureRegionRequest) (CaptureResult, error)
 	}
 	return s.capture(func(ctx context.Context, path string) (string, error) {
 		return s.nut.Screen.CaptureRegion(ctx, path, region)
-	}, req.FileName, Point{X: req.Region.Left, Y: req.Region.Top})
+	}, req.FileName, Point{X: req.Region.Left, Y: req.Region.Top}, Size{Width: req.Region.Width, Height: req.Region.Height}, req.MaxImageWidth, req.MaxImageHeight)
 }
 
 func (s *Service) ColorAt(req PointRequest) (ColorPointResult, error) {
@@ -570,6 +991,20 @@ func (s *Service) FocusWindow(req WindowHandleRequest) (ActionResult, error) {
 	return s.runWindowMutation(req.Handle, func(ctx context.Context, window *gut.Window) (bool, error) {
 		return window.Focus(ctx)
 	}, "Focused")
+}
+
+func (s *Service) FindWindowByHandle(req WindowHandleRequest) (WindowSummary, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	window, err := s.windowByHandle(ctx, req.Handle)
+	if err != nil {
+		return WindowSummary{}, err
+	}
+	return s.windowSummary(ctx, window)
 }
 
 func (s *Service) MoveWindow(req WindowMoveRequest) (ActionResult, error) {
@@ -800,7 +1235,7 @@ func (s *Service) ClipboardClear() (ActionResult, error) {
 	return ActionResult{OK: true, Message: "Cleared clipboard text"}, nil
 }
 
-func (s *Service) capture(run func(context.Context, string) (string, error), fileName string, offset Point) (CaptureResult, error) {
+func (s *Service) capture(run func(context.Context, string) (string, error), fileName string, offset Point, logicalSize Size, maxImageWidth int, maxImageHeight int) (CaptureResult, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
@@ -815,19 +1250,22 @@ func (s *Service) capture(run func(context.Context, string) (string, error), fil
 	if err != nil {
 		return CaptureResult{}, err
 	}
-	result := CaptureResult{
-		Path:    savedPath,
-		Message: fmt.Sprintf("Saved capture to %s", savedPath),
-		Offset:  offset,
-		Scale:   Scale{X: 1, Y: 1},
+	originalSize, err := captureImageSize(savedPath)
+	if err != nil {
+		return CaptureResult{}, err
 	}
+	deliveredSize, err := maybeDownscaleCapture(savedPath, originalSize, maxImageWidth, maxImageHeight)
+	if err != nil {
+		return CaptureResult{}, err
+	}
+	result := captureResultForImage(savedPath, fmt.Sprintf("Saved capture to %s", savedPath), offset, logicalSize, originalSize, deliveredSize)
 	if err := writeCaptureMetadata(result); err != nil {
 		return CaptureResult{}, err
 	}
 	return result, nil
 }
 
-func (s *Service) captureWithCommand(region string, fileName string, offset Point, logicalSize Size) (CaptureResult, error) {
+func (s *Service) captureWithCommand(fileName string, offset Point, logicalSize Size, maxImageWidth int, maxImageHeight int) (CaptureResult, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
@@ -839,13 +1277,8 @@ func (s *Service) captureWithCommand(region string, fileName string, offset Poin
 		return CaptureResult{}, err
 	}
 
-	cmd := exec.CommandContext(ctx, "screencapture", screencaptureArgs(region, path)...)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		message := strings.TrimSpace(string(output))
-		if message == "" {
-			return CaptureResult{}, err
-		}
-		return CaptureResult{}, fmt.Errorf("%v: %s", err, message)
+	if err := runScreencapture(ctx, path); err != nil {
+		return CaptureResult{}, err
 	}
 
 	if logicalSize.Width == 0 || logicalSize.Height == 0 {
@@ -860,14 +1293,72 @@ func (s *Service) captureWithCommand(region string, fileName string, offset Poin
 		logicalSize = Size{Width: width, Height: height}
 	}
 
-	scale := captureScale(path, logicalSize)
-
-	result := CaptureResult{
-		Path:    path,
-		Message: fmt.Sprintf("Saved capture to %s", path),
-		Offset:  offset,
-		Scale:   scale,
+	originalSize, err := captureImageSize(path)
+	if err != nil {
+		return CaptureResult{}, err
 	}
+	deliveredSize, err := maybeDownscaleCapture(path, originalSize, maxImageWidth, maxImageHeight)
+	if err != nil {
+		return CaptureResult{}, err
+	}
+	result := captureResultForImage(path, fmt.Sprintf("Saved capture to %s", path), offset, logicalSize, originalSize, deliveredSize)
+	if err := writeCaptureMetadata(result); err != nil {
+		return CaptureResult{}, err
+	}
+	return result, nil
+}
+
+func (s *Service) captureRegionWithCommand(fileName string, region Region, maxImageWidth int, maxImageHeight int) (CaptureResult, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	path, err := s.capturePath(fileName)
+	if err != nil {
+		return CaptureResult{}, err
+	}
+
+	width, err := s.nut.Screen.Width(ctx)
+	if err != nil {
+		return CaptureResult{}, err
+	}
+	height, err := s.nut.Screen.Height(ctx)
+	if err != nil {
+		return CaptureResult{}, err
+	}
+	screenSize := Size{Width: width, Height: height}
+
+	tempFile, err := os.CreateTemp(filepath.Dir(path), "capture-full-*.png")
+	if err != nil {
+		return CaptureResult{}, err
+	}
+	tempPath := tempFile.Name()
+	if err := tempFile.Close(); err != nil {
+		os.Remove(tempPath)
+		return CaptureResult{}, err
+	}
+	defer os.Remove(tempPath)
+
+	if err := runScreencapture(ctx, tempPath); err != nil {
+		return CaptureResult{}, err
+	}
+
+	fullScale := captureScale(tempPath, screenSize)
+	if err := cropCapturedRegion(tempPath, path, region, fullScale); err != nil {
+		return CaptureResult{}, err
+	}
+
+	originalSize, err := captureImageSize(path)
+	if err != nil {
+		return CaptureResult{}, err
+	}
+	deliveredSize, err := maybeDownscaleCapture(path, originalSize, maxImageWidth, maxImageHeight)
+	if err != nil {
+		return CaptureResult{}, err
+	}
+	result := captureRegionResult(path, region, fullScale, originalSize, deliveredSize)
 	if err := writeCaptureMetadata(result); err != nil {
 		return CaptureResult{}, err
 	}
@@ -875,34 +1366,39 @@ func (s *Service) captureWithCommand(region string, fileName string, offset Poin
 }
 
 func captureScale(path string, logicalSize Size) Scale {
+	imageSize, err := captureImageSize(path)
+	if err != nil {
+		return Scale{X: 1, Y: 1}
+	}
+	return captureScaleForSize(imageSize, logicalSize)
+}
+
+func captureScaleForSize(imageSize Size, logicalSize Size) Scale {
 	if logicalSize.Width <= 0 || logicalSize.Height <= 0 {
 		return Scale{X: 1, Y: 1}
 	}
 
+	scaleX := float64(imageSize.Width) / float64(logicalSize.Width)
+	scaleY := float64(imageSize.Height) / float64(logicalSize.Height)
+	return normalizedCaptureScale(Scale{X: scaleX, Y: scaleY})
+}
+
+func captureImageSize(path string) (Size, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return Scale{X: 1, Y: 1}
+		return Size{}, err
 	}
 	defer file.Close()
 
 	config, _, err := image.DecodeConfig(file)
 	if err != nil {
-		return Scale{X: 1, Y: 1}
+		return Size{}, err
 	}
-
-	scaleX := float64(config.Width) / float64(logicalSize.Width)
-	scaleY := float64(config.Height) / float64(logicalSize.Height)
-	if scaleX <= 0 {
-		scaleX = 1
-	}
-	if scaleY <= 0 {
-		scaleY = 1
-	}
-
-	return Scale{X: scaleX, Y: scaleY}
+	return Size{Width: config.Width, Height: config.Height}, nil
 }
 
 func writeCaptureMetadata(result CaptureResult) error {
+	result = normalizeCaptureResultMetadata(result)
 	data, err := json.Marshal(result)
 	if err != nil {
 		return err
@@ -919,11 +1415,338 @@ func readCaptureMetadata(path string) (CaptureResult, error) {
 	if err := json.Unmarshal(data, &result); err != nil {
 		return CaptureResult{}, err
 	}
-	return result, nil
+	if strings.TrimSpace(result.Path) == "" {
+		result.Path = path
+	}
+	return normalizeCaptureResultMetadata(result), nil
 }
 
 func captureMetadataPath(path string) string {
 	return path + ".json"
+}
+
+func runScreencapture(ctx context.Context, path string) error {
+	cmd := exec.CommandContext(ctx, "screencapture", screencaptureArgs("", path)...)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		message := strings.TrimSpace(string(output))
+		if message == "" {
+			return err
+		}
+		return fmt.Errorf("%v: %s", err, message)
+	}
+	return nil
+}
+
+func cropCapturedRegion(sourcePath string, destPath string, region Region, scale Scale) error {
+	if region.Width <= 0 || region.Height <= 0 {
+		return fmt.Errorf("region width and height must be positive")
+	}
+
+	sourceFile, err := os.Open(sourcePath)
+	if err != nil {
+		return err
+	}
+	defer sourceFile.Close()
+
+	sourceImage, _, err := image.Decode(sourceFile)
+	if err != nil {
+		return err
+	}
+
+	cropBounds, err := captureCropBounds(region, scale, sourceImage.Bounds())
+	if err != nil {
+		return err
+	}
+
+	cropped := image.NewRGBA(image.Rect(0, 0, cropBounds.Dx(), cropBounds.Dy()))
+	draw.Draw(cropped, cropped.Bounds(), sourceImage, cropBounds.Min, draw.Src)
+	return encodeCaptureImage(destPath, cropped)
+}
+
+func captureRegionResult(path string, region Region, originalScale Scale, originalSize Size, deliveredSize Size) CaptureResult {
+	return captureResultForImage(
+		path,
+		fmt.Sprintf("Saved capture to %s", path),
+		Point{X: region.Left, Y: region.Top},
+		Size{Width: region.Width, Height: region.Height},
+		originalSize,
+		deliveredSize,
+	).withOriginalScale(originalScale)
+}
+
+func normalizedCaptureScale(scale Scale) Scale {
+	if scale.X <= 0 {
+		scale.X = 1
+	}
+	if scale.Y <= 0 {
+		scale.Y = 1
+	}
+	return scale
+}
+
+func normalizedCaptureSize(size Size) Size {
+	if size.Width < 0 {
+		size.Width = 0
+	}
+	if size.Height < 0 {
+		size.Height = 0
+	}
+	return size
+}
+
+func captureResultForImage(path string, message string, offset Point, logicalSize Size, originalSize Size, deliveredSize Size) CaptureResult {
+	originalSize = normalizedCaptureSize(originalSize)
+	deliveredSize = normalizedCaptureSize(deliveredSize)
+	originalScale := captureScaleForSize(originalSize, logicalSize)
+	result := CaptureResult{
+		Path:          path,
+		Message:       message,
+		Offset:        offset,
+		OriginalSize:  originalSize,
+		DeliveredSize: deliveredSize,
+		OriginalScale: originalScale,
+		Scale:         deliveredCaptureScale(originalScale, originalSize, deliveredSize),
+	}
+	return normalizeCaptureResultMetadata(result)
+}
+
+func (result CaptureResult) withOriginalScale(originalScale Scale) CaptureResult {
+	result.OriginalScale = normalizedCaptureScale(originalScale)
+	result.Scale = deliveredCaptureScale(result.OriginalScale, result.OriginalSize, result.DeliveredSize)
+	return normalizeCaptureResultMetadata(result)
+}
+
+func normalizeCaptureResultMetadata(result CaptureResult) CaptureResult {
+	result.Path = strings.TrimSpace(result.Path)
+	result.OriginalSize = normalizedCaptureSize(result.OriginalSize)
+	result.DeliveredSize = normalizedCaptureSize(result.DeliveredSize)
+
+	if result.OriginalSize.Width == 0 || result.OriginalSize.Height == 0 || result.DeliveredSize.Width == 0 || result.DeliveredSize.Height == 0 {
+		if size, err := captureImageSize(result.Path); err == nil {
+			if result.OriginalSize.Width == 0 || result.OriginalSize.Height == 0 {
+				result.OriginalSize = size
+			}
+			if result.DeliveredSize.Width == 0 || result.DeliveredSize.Height == 0 {
+				result.DeliveredSize = size
+			}
+		}
+	}
+	if result.OriginalSize.Width == 0 || result.OriginalSize.Height == 0 {
+		result.OriginalSize = result.DeliveredSize
+	}
+	if result.DeliveredSize.Width == 0 || result.DeliveredSize.Height == 0 {
+		result.DeliveredSize = result.OriginalSize
+	}
+
+	deliveredRatioX, deliveredRatioY := deliveredSizeRatio(result.OriginalSize, result.DeliveredSize)
+	result.Scale = normalizedCaptureScale(result.Scale)
+	if result.OriginalScale.X <= 0 {
+		result.OriginalScale.X = result.Scale.X
+		if deliveredRatioX > 0 {
+			result.OriginalScale.X = result.Scale.X / deliveredRatioX
+		}
+	}
+	if result.OriginalScale.Y <= 0 {
+		result.OriginalScale.Y = result.Scale.Y
+		if deliveredRatioY > 0 {
+			result.OriginalScale.Y = result.Scale.Y / deliveredRatioY
+		}
+	}
+	result.OriginalScale = normalizedCaptureScale(result.OriginalScale)
+	result.Scale = deliveredCaptureScale(result.OriginalScale, result.OriginalSize, result.DeliveredSize)
+	return result
+}
+
+func deliveredCaptureScale(originalScale Scale, originalSize Size, deliveredSize Size) Scale {
+	originalScale = normalizedCaptureScale(originalScale)
+	deliveredRatioX, deliveredRatioY := deliveredSizeRatio(originalSize, deliveredSize)
+	return normalizedCaptureScale(Scale{
+		X: originalScale.X * deliveredRatioX,
+		Y: originalScale.Y * deliveredRatioY,
+	})
+}
+
+func deliveredSizeRatio(originalSize Size, deliveredSize Size) (float64, float64) {
+	if originalSize.Width <= 0 || originalSize.Height <= 0 || deliveredSize.Width <= 0 || deliveredSize.Height <= 0 {
+		return 1, 1
+	}
+	return float64(deliveredSize.Width) / float64(originalSize.Width), float64(deliveredSize.Height) / float64(originalSize.Height)
+}
+
+func planCaptureDeliveredSize(originalSize Size, maxImageWidth int, maxImageHeight int) Size {
+	originalSize = normalizedCaptureSize(originalSize)
+	if originalSize.Width <= 0 || originalSize.Height <= 0 {
+		return Size{}
+	}
+	if maxImageWidth <= 0 && maxImageHeight <= 0 {
+		return originalSize
+	}
+
+	scaleFactor := 1.0
+	if maxImageWidth > 0 && originalSize.Width > maxImageWidth {
+		scaleFactor = math.Min(scaleFactor, float64(maxImageWidth)/float64(originalSize.Width))
+	}
+	if maxImageHeight > 0 && originalSize.Height > maxImageHeight {
+		scaleFactor = math.Min(scaleFactor, float64(maxImageHeight)/float64(originalSize.Height))
+	}
+	if scaleFactor >= 1 {
+		return originalSize
+	}
+
+	return Size{
+		Width:  max(1, int(math.Floor(float64(originalSize.Width)*scaleFactor))),
+		Height: max(1, int(math.Floor(float64(originalSize.Height)*scaleFactor))),
+	}
+}
+
+func maybeDownscaleCapture(path string, originalSize Size, maxImageWidth int, maxImageHeight int) (Size, error) {
+	targetSize := planCaptureDeliveredSize(originalSize, maxImageWidth, maxImageHeight)
+	if targetSize == originalSize {
+		return originalSize, nil
+	}
+	if err := resizeCaptureImage(path, targetSize); err != nil {
+		return Size{}, err
+	}
+	return targetSize, nil
+}
+
+func resizeCaptureImage(path string, targetSize Size) error {
+	targetSize = normalizedCaptureSize(targetSize)
+	if targetSize.Width <= 0 || targetSize.Height <= 0 {
+		return fmt.Errorf("target size must be positive")
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	img, _, err := image.Decode(file)
+	file.Close()
+	if err != nil {
+		return err
+	}
+
+	return encodeCaptureImage(path, resizeImageNearestNeighbor(img, targetSize))
+}
+
+func resizeImageNearestNeighbor(source image.Image, targetSize Size) image.Image {
+	target := image.NewRGBA(image.Rect(0, 0, targetSize.Width, targetSize.Height))
+	sourceBounds := source.Bounds()
+	sourceWidth := sourceBounds.Dx()
+	sourceHeight := sourceBounds.Dy()
+	if sourceWidth <= 0 || sourceHeight <= 0 {
+		return target
+	}
+
+	for y := 0; y < targetSize.Height; y++ {
+		sourceY := sourceBounds.Min.Y + min(sourceHeight-1, int(float64(y)*float64(sourceHeight)/float64(targetSize.Height)))
+		for x := 0; x < targetSize.Width; x++ {
+			sourceX := sourceBounds.Min.X + min(sourceWidth-1, int(float64(x)*float64(sourceWidth)/float64(targetSize.Width)))
+			target.Set(x, y, source.At(sourceX, sourceY))
+		}
+	}
+	return target
+}
+
+func translateDeliveredImagePointToScreen(capture CaptureResult, deliveredPoint Point) (ImagePointTranslationResult, error) {
+	capture = normalizeCaptureResultMetadata(capture)
+	if strings.TrimSpace(capture.Path) == "" {
+		return ImagePointTranslationResult{}, fmt.Errorf("capture path is required")
+	}
+	if deliveredPoint.X < 0 || deliveredPoint.Y < 0 {
+		return ImagePointTranslationResult{}, fmt.Errorf("image coordinates must be non-negative")
+	}
+	if capture.DeliveredSize.Width <= 0 || capture.DeliveredSize.Height <= 0 {
+		return ImagePointTranslationResult{}, fmt.Errorf("capture metadata is missing delivered image size")
+	}
+	if capture.OriginalSize.Width <= 0 || capture.OriginalSize.Height <= 0 {
+		return ImagePointTranslationResult{}, fmt.Errorf("capture metadata is missing original image size")
+	}
+	if deliveredPoint.X >= capture.DeliveredSize.Width || deliveredPoint.Y >= capture.DeliveredSize.Height {
+		return ImagePointTranslationResult{}, fmt.Errorf("image point (%d, %d) is outside delivered image bounds %dx%d", deliveredPoint.X, deliveredPoint.Y, capture.DeliveredSize.Width, capture.DeliveredSize.Height)
+	}
+	if capture.OriginalScale.X <= 0 || capture.OriginalScale.Y <= 0 {
+		return ImagePointTranslationResult{}, fmt.Errorf("capture metadata is missing original image scale")
+	}
+
+	originalPoint := ImagePoint{
+		X: float64(deliveredPoint.X) * float64(capture.OriginalSize.Width) / float64(capture.DeliveredSize.Width),
+		Y: float64(deliveredPoint.Y) * float64(capture.OriginalSize.Height) / float64(capture.DeliveredSize.Height),
+	}
+	exactScreenPoint := ImagePoint{
+		X: float64(capture.Offset.X) + originalPoint.X/capture.OriginalScale.X,
+		Y: float64(capture.Offset.Y) + originalPoint.Y/capture.OriginalScale.Y,
+	}
+	absoluteScreenPoint := Point{
+		X: int(math.Round(exactScreenPoint.X)),
+		Y: int(math.Round(exactScreenPoint.Y)),
+	}
+	return ImagePointTranslationResult{
+		Path:                    capture.Path,
+		RequestedDeliveredPoint: deliveredPoint,
+		OriginalImagePoint:      originalPoint,
+		ExactScreenPoint:        exactScreenPoint,
+		AbsoluteScreenPoint:     absoluteScreenPoint,
+		Capture:                 capture,
+		Message:                 fmt.Sprintf("Translated delivered image point (%d, %d) to absolute screen point (%d, %d).", deliveredPoint.X, deliveredPoint.Y, absoluteScreenPoint.X, absoluteScreenPoint.Y),
+	}, nil
+}
+
+func (s *Service) TranslateImagePointToScreen(path string, deliveredPoint Point) (ImagePointTranslationResult, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ImagePointTranslationResult{}, fmt.Errorf("path is required")
+	}
+	capture, err := readCaptureMetadata(path)
+	if err != nil {
+		return ImagePointTranslationResult{}, err
+	}
+	return translateDeliveredImagePointToScreen(capture, deliveredPoint)
+}
+
+func captureCropBounds(region Region, scale Scale, sourceBounds image.Rectangle) (image.Rectangle, error) {
+	if region.Width <= 0 || region.Height <= 0 {
+		return image.Rectangle{}, fmt.Errorf("region width and height must be positive")
+	}
+	scale = normalizedCaptureScale(scale)
+
+	left := scaledPixelStart(region.Left, scale.X)
+	top := scaledPixelStart(region.Top, scale.Y)
+	right := scaledPixelEnd(region.Left+region.Width, scale.X)
+	bottom := scaledPixelEnd(region.Top+region.Height, scale.Y)
+	cropBounds := image.Rect(left, top, right, bottom)
+	if cropBounds.Empty() {
+		return image.Rectangle{}, fmt.Errorf("region %v produced an empty crop", region)
+	}
+	if !cropBounds.In(sourceBounds) {
+		return image.Rectangle{}, fmt.Errorf("region %v is outside captured screen bounds %v", region, sourceBounds)
+	}
+	return cropBounds, nil
+}
+
+func scaledPixelStart(value int, scale float64) int {
+	return int(math.Floor(float64(value) * scale))
+}
+
+func scaledPixelEnd(value int, scale float64) int {
+	return int(math.Ceil(float64(value) * scale))
+}
+
+func encodeCaptureImage(path string, img image.Image) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".jpg", ".jpeg":
+		return jpeg.Encode(file, img, &jpeg.Options{Quality: 100})
+	case ".gif":
+		return gif.Encode(file, img, nil)
+	default:
+		return png.Encode(file, img)
+	}
 }
 
 func screencaptureArgs(region string, path string) []string {
@@ -1023,6 +1846,19 @@ func (s *Service) runMouseButton(req MouseButtonRequest, run func(context.Contex
 	return ActionResult{OK: true, Message: fmt.Sprintf("%s %s button", verb, req.Button)}, nil
 }
 
+func (s *Service) windowByHandle(ctx context.Context, handle uint64) (*gut.Window, error) {
+	windows, err := gut.GetWindows(ctx, s.nut.Registry)
+	if err != nil {
+		return nil, err
+	}
+	for _, window := range windows {
+		if uint64(window.Handle) == handle {
+			return window, nil
+		}
+	}
+	return nil, fmt.Errorf("%w: %d", errWindowHandleNotFound, handle)
+}
+
 func (s *Service) runWindowMutation(handle uint64, run func(context.Context, *gut.Window) (bool, error), verb string) (ActionResult, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -1085,14 +1921,171 @@ func (s *Service) windowSummary(ctx context.Context, window *gut.Window) (Window
 	}, nil
 }
 
+func (s *Service) windowForAccessibilitySnapshot(ctx context.Context, handle uint64) (*gut.Window, error) {
+	if handle == 0 {
+		return gut.GetActiveWindow(ctx, s.nut.Registry)
+	}
+	return s.windowByHandle(ctx, handle)
+}
+
+func flattenWindowAccessibilityElements(root shared.WindowElement) ([]WindowAccessibilityElement, windowAccessibilitySnapshotCache) {
+	elements := make([]WindowAccessibilityElement, 0, 32)
+	cache := windowAccessibilitySnapshotCache{
+		Elements: make(map[string]WindowAccessibilityElement),
+	}
+	var visit func(element shared.WindowElement, depth int, path string)
+	visit = func(element shared.WindowElement, depth int, path string) {
+		id := fmt.Sprintf("el-%03d", len(elements)+1)
+		result := windowAccessibilityElementFromShared(id, path, depth, element)
+		elements = append(elements, result)
+		cache.Elements[id] = result
+		for index, child := range element.Children {
+			childPath := fmt.Sprintf("%s.%d", path, index+1)
+			if path == "" {
+				childPath = fmt.Sprintf("%d", index+1)
+			}
+			visit(child, depth+1, childPath)
+		}
+	}
+
+	visit(root, 0, "0")
+	return elements, cache
+}
+
+func windowAccessibilityElementFromShared(id string, path string, depth int, element shared.WindowElement) WindowAccessibilityElement {
+	result := WindowAccessibilityElement{
+		ID:               id,
+		Path:             path,
+		Depth:            depth,
+		Type:             derefString(element.Type),
+		Role:             derefString(element.Role),
+		Subrole:          derefString(element.SubRole),
+		Title:            derefString(element.Title),
+		Value:            derefString(element.Value),
+		SelectedText:     derefString(element.SelectedText),
+		AvailableActions: windowAccessibilityAvailableActions(element),
+	}
+	if element.IsEnabled != nil {
+		result.EnabledKnown = true
+		result.Enabled = *element.IsEnabled
+	}
+	if element.IsFocused != nil {
+		result.FocusedKnown = true
+		result.Focused = *element.IsFocused
+	}
+	if element.Region != nil {
+		region := regionFromShared(*element.Region)
+		result.ScreenRegion = &region
+	}
+	return result
+}
+
+func windowAccessibilityAvailableActions(element shared.WindowElement) []string {
+	actions := make([]string, 0, 4)
+	if element.Region != nil {
+		actions = append(actions, "click", "focus", "double_click", "right_click")
+	}
+	role := strings.ToLower(strings.TrimSpace(derefString(element.Role)))
+	subrole := strings.ToLower(strings.TrimSpace(derefString(element.SubRole)))
+	if strings.Contains(role, "menu") || strings.Contains(subrole, "menu") {
+		actions = append(actions, "show_menu")
+	}
+	return actions
+}
+
+func formatWindowAccessibilitySnapshotMarkdown(snapshotID string, window WindowSummary, elements []WindowAccessibilityElement) string {
+	var builder strings.Builder
+	builder.WriteString(fmt.Sprintf("# Window accessibility snapshot\n\n- Snapshot ID: `%s`\n- Window: `%s` (`%d`)\n- Screen region: `(%d, %d)` `%dx%d`\n- Element count: `%d`\n\n## Elements\n",
+		snapshotID,
+		window.Title,
+		window.Handle,
+		window.Region.Left,
+		window.Region.Top,
+		window.Region.Width,
+		window.Region.Height,
+		len(elements),
+	))
+
+	for _, element := range elements {
+		indent := strings.Repeat("  ", element.Depth)
+		label := firstNonEmpty(element.Title, element.Value, element.SelectedText, element.Role, element.Type, "element")
+		builder.WriteString(fmt.Sprintf("%s- `%s` `%s` — %s\n", indent, element.ID, element.Path, markdownInline(label)))
+		meta := make([]string, 0, 6)
+		if element.Role != "" {
+			meta = append(meta, fmt.Sprintf("role `%s`", element.Role))
+		}
+		if element.Subrole != "" {
+			meta = append(meta, fmt.Sprintf("subrole `%s`", element.Subrole))
+		}
+		if element.Type != "" {
+			meta = append(meta, fmt.Sprintf("type `%s`", element.Type))
+		}
+		if element.EnabledKnown {
+			meta = append(meta, fmt.Sprintf("enabled `%t`", element.Enabled))
+		}
+		if element.FocusedKnown {
+			meta = append(meta, fmt.Sprintf("focused `%t`", element.Focused))
+		}
+		if len(meta) > 0 {
+			builder.WriteString(fmt.Sprintf("%s  - %s\n", indent, strings.Join(meta, ", ")))
+		}
+		if element.ScreenRegion != nil {
+			builder.WriteString(fmt.Sprintf("%s  - screen region `(%d, %d)` `%dx%d`\n", indent, element.ScreenRegion.Left, element.ScreenRegion.Top, element.ScreenRegion.Width, element.ScreenRegion.Height))
+		}
+		if len(element.AvailableActions) > 0 {
+			builder.WriteString(fmt.Sprintf("%s  - available actions: %s\n", indent, backtickJoin(element.AvailableActions)))
+		}
+	}
+
+	builder.WriteString("\nUse `snapshot_id` plus one of the element IDs with `act_on_window_accessibility_element` to click or focus a known control without re-guessing coordinates.")
+	return builder.String()
+}
+
+func centerPoint(region Region) Point {
+	return Point{
+		X: region.Left + region.Width/2,
+		Y: region.Top + region.Height/2,
+	}
+}
+
+func derefString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(*value)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func markdownInline(value string) string {
+	text := strings.TrimSpace(value)
+	if text == "" {
+		return "unnamed"
+	}
+	text = strings.ReplaceAll(text, "\n", " ")
+	return strings.Join(strings.Fields(text), " ")
+}
+
+func backtickJoin(values []string) string {
+	formatted := make([]string, 0, len(values))
+	for _, value := range values {
+		formatted = append(formatted, fmt.Sprintf("`%s`", value))
+	}
+	return strings.Join(formatted, ", ")
+}
+
 func featureStatusesForGOOS(goos string, report guttesting.Report) []FeatureStatus {
-	statuses := make([]FeatureStatus, 0, len(report.CapabilityStatuses())+11)
+	statuses := make([]FeatureStatus, 0, len(report.CapabilityStatuses())+15)
 	for _, status := range report.CapabilityStatuses() {
-		statuses = append(statuses, FeatureStatus{
-			ID:           string(status.Capability),
-			Availability: string(status.Availability),
-			Reason:       status.Reason,
-		})
+		statuses = append(statuses, capabilityFeatureStatus(status, ""))
 	}
 
 	if goos == "darwin" {
@@ -1118,6 +2111,14 @@ func featureStatusesForGOOS(goos string, report guttesting.Report) []FeatureStat
 	}
 
 	statuses = append(statuses,
+		toolStatusFromCapability("get_permission_readiness", report.Capabilities.Status(common.CapabilityPermissionReadiness), "available through the native accessibility permission readiness backend"),
+		toolStatusFromCapability("get_focused_window_metadata", report.Capabilities.Status(common.CapabilityAXFocusedWindowMetadata), "available through the native focused-window accessibility metadata backend"),
+		toolStatusFromCapability("get_focused_element_metadata", report.Capabilities.Status(common.CapabilityAXFocusedElementMetadata), "available through the native focused-element accessibility metadata backend"),
+		toolStatusFromCapability("get_element_at_point_metadata", report.Capabilities.Status(common.CapabilityAXElementAtPointMetadata), "available through the native element-at-point accessibility metadata backend"),
+		toolStatusFromCapability("raise_focused_window", report.Capabilities.Status(common.CapabilityAXFocusedWindowRaise), "available through the native focused-window accessibility action backend"),
+		toolStatusFromCapability("perform_focused_element_action", report.Capabilities.Status(common.CapabilityAXFocusedElementAction), "available through the native focused-element accessibility action backend"),
+		toolStatusFromCapability("perform_element_action_at_point", report.Capabilities.Status(common.CapabilityAXElementActionAtPoint), "available through the native element-at-point accessibility action backend"),
+		toolStatusFromCapability("focus_element_at_point", report.Capabilities.Status(common.CapabilityAXElementFocusAtPoint), "available through the native element-at-point accessibility focus backend"),
 		toolStatusFromCapability("minimize_window", report.Capabilities.Status(common.CapabilityWindowMinimize), "available through the native window.minimize backend"),
 		toolStatusFromCapability("restore_window", report.Capabilities.Status(common.CapabilityWindowRestore), "available through the native window.restore backend"),
 		FeatureStatus{
@@ -1156,15 +2157,24 @@ func unavailableFeatureStatus(id string, reason string) FeatureStatus {
 }
 
 func toolStatusFromCapability(id string, status common.CapabilityStatus, availableReason string) FeatureStatus {
-	if status.Availability == common.AvailabilityAvailable {
-		return availableFeatureStatus(id, availableReason)
-	}
+	feature := capabilityFeatureStatus(status, availableReason)
+	feature.ID = id
+	return feature
+}
 
-	reason := fmt.Sprintf("native %s is %s", status.Capability, status.Availability)
-	if status.Reason != "" {
-		reason += ": " + status.Reason
+func capabilityFeatureStatus(status common.CapabilityStatus, availableReason string) FeatureStatus {
+	reason := strings.TrimSpace(status.Reason)
+	if status.Availability == common.AvailabilityAvailable && strings.TrimSpace(availableReason) != "" {
+		reason = availableReason
 	}
-	return unavailableFeatureStatus(id, reason)
+	if reason == "" {
+		reason = fmt.Sprintf("native %s is %s", status.Capability, status.Availability)
+	}
+	return FeatureStatus{
+		ID:           string(status.Capability),
+		Availability: string(status.Availability),
+		Reason:       reason,
+	}
 }
 
 func (s *Service) timeout(valueMS int, fallback time.Duration) time.Duration {
@@ -1194,5 +2204,72 @@ func colorFromShared(color shared.RGBA) Color {
 		B:   color.B,
 		A:   color.A,
 		Hex: color.Hex(),
+	}
+}
+
+func permissionStatusResultFromCommon(status common.PermissionStatus) PermissionStatusResult {
+	return PermissionStatusResult{
+		Granted:   status.Granted,
+		Supported: status.Supported,
+		Reason:    status.Reason,
+	}
+}
+
+func permissionSnapshotResultFromCommon(snapshot common.PermissionSnapshot) PermissionSnapshotResult {
+	return PermissionSnapshotResult{
+		Accessibility:   permissionStatusResultFromCommon(snapshot.Accessibility),
+		ScreenRecording: permissionStatusResultFromCommon(snapshot.ScreenRecording),
+	}
+}
+
+func focusedWindowMetadataResultFromCommon(metadata common.FocusedWindowMetadata) FocusedWindowMetadataResult {
+	return FocusedWindowMetadataResult{
+		Handle:      uint64(metadata.Handle),
+		Title:       metadata.Title,
+		Role:        metadata.Role,
+		Subrole:     metadata.Subrole,
+		Region:      regionFromRect(metadata.Rect),
+		RegionKnown: metadata.RectKnown,
+		Focused:     metadata.Focused,
+		Main:        metadata.Main,
+		Minimized:   metadata.Minimized,
+		OwnerPID:    metadata.OwnerPID,
+		OwnerName:   metadata.OwnerName,
+		BundleID:    metadata.BundleID,
+	}
+}
+
+func uiElementMetadataResultFromCommon(metadata common.UIElementMetadata) UIElementMetadataResult {
+	actions := append([]string(nil), metadata.Actions...)
+	return UIElementMetadataResult{
+		Role:        metadata.Role,
+		Subrole:     metadata.Subrole,
+		Title:       metadata.Title,
+		Description: metadata.Description,
+		Value:       metadata.Value,
+		Enabled:     metadata.Enabled,
+		Focused:     metadata.Focused,
+		Frame:       regionFromRect(metadata.Frame),
+		FrameKnown:  metadata.FrameKnown,
+		Actions:     actions,
+	}
+}
+
+func parseAXAction(value string) (common.AXAction, error) {
+	action := common.AXAction(strings.TrimSpace(value))
+	switch action {
+	case common.AXPress, common.AXRaise, common.AXShowMenu, common.AXConfirm, common.AXPick:
+		return action, nil
+	default:
+		return "", fmt.Errorf("unsupported AX action %q", value)
+	}
+}
+
+func regionFromRect(rect common.Rect) Region {
+	return Region{
+		Left:   rect.X,
+		Top:    rect.Y,
+		Width:  rect.Width,
+		Height: rect.Height,
 	}
 }

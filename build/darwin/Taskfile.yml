@@ -6,8 +6,8 @@ tasks:
       - cd frontend && pnpm install
       - wails3 generate bindings
       - cd frontend && pnpm build
-      - env MACOSX_DEPLOYMENT_TARGET=14.0 go build -o build/bin/gutgd .
+      - env MACOSX_DEPLOYMENT_TARGET=14.0 CGO_CFLAGS='-mmacosx-version-min=14.0' CGO_CXXFLAGS='-mmacosx-version-min=14.0' CGO_LDFLAGS='-mmacosx-version-min=14.0' GOFLAGS='-ldflags=-linkmode=external -ldflags=-extldflags=-mmacosx-version-min=14.0' go build -o build/bin/gutgd .
 
   run:
     cmds:
-      - env MACOSX_DEPLOYMENT_TARGET=14.0 go run .
+      - env MACOSX_DEPLOYMENT_TARGET=14.0 CGO_CFLAGS='-mmacosx-version-min=14.0' CGO_CXXFLAGS='-mmacosx-version-min=14.0' CGO_LDFLAGS='-mmacosx-version-min=14.0' GOFLAGS='-ldflags=-linkmode=external -ldflags=-extldflags=-mmacosx-version-min=14.0' go run .

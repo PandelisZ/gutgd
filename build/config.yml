@@ -27,7 +27,7 @@ dev_mode:
       type: background
     - cmd: go mod tidy
       type: blocking
-    - cmd: env MACOSX_DEPLOYMENT_TARGET=14.0 go build -o build/bin/gutgd .
+    - cmd: env MACOSX_DEPLOYMENT_TARGET=14.0 CGO_CFLAGS='-mmacosx-version-min=14.0' CGO_CXXFLAGS='-mmacosx-version-min=14.0' CGO_LDFLAGS='-mmacosx-version-min=14.0' GOFLAGS='-ldflags=-linkmode=external -ldflags=-extldflags=-mmacosx-version-min=14.0' go build -o build/bin/gutgd .
       type: blocking
-    - cmd: env MACOSX_DEPLOYMENT_TARGET=14.0 go run .
+    - cmd: env MACOSX_DEPLOYMENT_TARGET=14.0 CGO_CFLAGS='-mmacosx-version-min=14.0' CGO_CXXFLAGS='-mmacosx-version-min=14.0' CGO_LDFLAGS='-mmacosx-version-min=14.0' GOFLAGS='-ldflags=-linkmode=external -ldflags=-extldflags=-mmacosx-version-min=14.0' go run .
       type: primary

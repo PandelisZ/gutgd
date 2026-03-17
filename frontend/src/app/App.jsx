@@ -6,6 +6,7 @@ import { navItems } from './routes'
 import { useBridgeMode } from '../lib/wails'
 import ClipboardView from '../views/ClipboardView'
 import AgentView from '../views/AgentView'
+import AgentSettingsView from '../views/AgentSettingsView'
 import DiagnosticsView from '../views/DiagnosticsView'
 import KeyboardView from '../views/KeyboardView'
 import MouseView from '../views/MouseView'
@@ -30,6 +31,7 @@ function RoutedApp() {
         <Route path="/search" element={<SearchView />} />
         <Route path="/clipboard" element={<ClipboardView />} />
         <Route path="/agent" element={<AgentView />} />
+        <Route path="/agent-settings" element={<AgentSettingsView />} />
       </Routes>
     </AppLayout>
   )

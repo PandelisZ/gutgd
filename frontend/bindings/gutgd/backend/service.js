@@ -148,12 +148,32 @@ export function FindColor(req) {
 }
 
 /**
+ * @param {$models.WindowHandleRequest} req
+ * @returns {$CancellablePromise<$models.WindowSummary>}
+ */
+export function FindWindowByHandle(req) {
+    return $Call.ByID(3957322820, req).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType7($result);
+    }));
+}
+
+/**
  * @param {$models.WindowQueryRequest} req
  * @returns {$CancellablePromise<$models.WindowSummary>}
  */
 export function FindWindowByTitle(req) {
     return $Call.ByID(1623829132, req).then(/** @type {($result: any) => any} */(($result) => {
         return $$createType7($result);
+    }));
+}
+
+/**
+ * @param {$models.PointRequest} req
+ * @returns {$CancellablePromise<$models.ActionResult>}
+ */
+export function FocusElementAtPoint(req) {
+    return $Call.ByID(524922277, req).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType0($result);
     }));
 }
 
@@ -196,6 +216,34 @@ export function GetDiagnostics(mutable) {
 }
 
 /**
+ * @param {$models.PointRequest} req
+ * @returns {$CancellablePromise<$models.UIElementMetadataResult>}
+ */
+export function GetElementAtPointMetadata(req) {
+    return $Call.ByID(100587620, req).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType10($result);
+    }));
+}
+
+/**
+ * @returns {$CancellablePromise<$models.UIElementMetadataResult>}
+ */
+export function GetFocusedElementMetadata() {
+    return $Call.ByID(2523385230).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType10($result);
+    }));
+}
+
+/**
+ * @returns {$CancellablePromise<$models.FocusedWindowMetadataResult>}
+ */
+export function GetFocusedWindowMetadata() {
+    return $Call.ByID(1139212420).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType11($result);
+    }));
+}
+
+/**
  * @returns {$CancellablePromise<$models.Point>}
  */
 export function GetMousePosition() {
@@ -205,11 +253,20 @@ export function GetMousePosition() {
 }
 
 /**
+ * @returns {$CancellablePromise<$models.PermissionReadinessResult>}
+ */
+export function GetPermissionReadiness() {
+    return $Call.ByID(37559861).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType12($result);
+    }));
+}
+
+/**
  * @returns {$CancellablePromise<$models.ScreenSizeResult>}
  */
 export function GetScreenSize() {
     return $Call.ByID(2197467173).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType10($result);
+        return $$createType13($result);
     }));
 }
 
@@ -228,7 +285,7 @@ export function HighlightRegion(req) {
  */
 export function ListAgentModels() {
     return $Call.ByID(540252835).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType12($result);
+        return $$createType15($result);
     }));
 }
 
@@ -237,7 +294,7 @@ export function ListAgentModels() {
  */
 export function ListWindows() {
     return $Call.ByID(573994497).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType13($result);
+        return $$createType16($result);
     }));
 }
 
@@ -247,6 +304,26 @@ export function ListWindows() {
  */
 export function MinimizeWindow(req) {
     return $Call.ByID(764668720, req).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType0($result);
+    }));
+}
+
+/**
+ * @param {$models.MouseButtonRequest} req
+ * @returns {$CancellablePromise<$models.ActionResult>}
+ */
+export function MouseDown(req) {
+    return $Call.ByID(2906832043, req).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType0($result);
+    }));
+}
+
+/**
+ * @param {$models.MouseButtonRequest} req
+ * @returns {$CancellablePromise<$models.ActionResult>}
+ */
+export function MouseUp(req) {
+    return $Call.ByID(26956106, req).then(/** @type {($result: any) => any} */(($result) => {
         return $$createType0($result);
     }));
 }
@@ -272,6 +349,26 @@ export function MoveWindow(req) {
 }
 
 /**
+ * @param {$models.AXActionAtPointRequest} req
+ * @returns {$CancellablePromise<$models.ActionResult>}
+ */
+export function PerformElementActionAtPoint(req) {
+    return $Call.ByID(885567762, req).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType0($result);
+    }));
+}
+
+/**
+ * @param {$models.AXActionRequest} req
+ * @returns {$CancellablePromise<$models.ActionResult>}
+ */
+export function PerformFocusedElementAction(req) {
+    return $Call.ByID(1823793388, req).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType0($result);
+    }));
+}
+
+/**
  * @param {$models.KeyboardKeysRequest} req
  * @returns {$CancellablePromise<$models.ActionResult>}
  */
@@ -287,6 +384,15 @@ export function PressKeys(req) {
  */
 export function PressSpecialKey(req) {
     return $Call.ByID(3576986753, req).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType0($result);
+    }));
+}
+
+/**
+ * @returns {$CancellablePromise<$models.ActionResult>}
+ */
+export function RaiseFocusedWindow() {
+    return $Call.ByID(71988429).then(/** @type {($result: any) => any} */(($result) => {
         return $$createType0($result);
     }));
 }
@@ -370,6 +476,17 @@ export function TapKeys(req) {
 }
 
 /**
+ * @param {string} path
+ * @param {$models.Point} deliveredPoint
+ * @returns {$CancellablePromise<$models.ImagePointTranslationResult>}
+ */
+export function TranslateImagePointToScreen(path, deliveredPoint) {
+    return $Call.ByID(3444309878, path, deliveredPoint).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType17($result);
+    }));
+}
+
+/**
  * @param {$models.KeyboardTextRequest} req
  * @returns {$CancellablePromise<$models.ActionResult>}
  */
@@ -410,7 +527,11 @@ const $$createType6 = $models.Point.createFrom;
 const $$createType7 = $models.WindowSummary.createFrom;
 const $$createType8 = $models.AgentSettings.createFrom;
 const $$createType9 = $models.DiagnosticsResponse.createFrom;
-const $$createType10 = $models.ScreenSizeResult.createFrom;
-const $$createType11 = $models.AgentModelOption.createFrom;
-const $$createType12 = $Create.Array($$createType11);
-const $$createType13 = $Create.Array($$createType7);
+const $$createType10 = $models.UIElementMetadataResult.createFrom;
+const $$createType11 = $models.FocusedWindowMetadataResult.createFrom;
+const $$createType12 = $models.PermissionReadinessResult.createFrom;
+const $$createType13 = $models.ScreenSizeResult.createFrom;
+const $$createType14 = $models.AgentModelOption.createFrom;
+const $$createType15 = $Create.Array($$createType14);
+const $$createType16 = $Create.Array($$createType7);
+const $$createType17 = $models.ImagePointTranslationResult.createFrom;

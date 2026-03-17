@@ -10,6 +10,76 @@ import { Create as $Create } from "@wailsio/runtime";
 // @ts-ignore: Unused imports
 import * as guttesting$0 from "../../gut/testing/models.js";
 
+export class AXActionAtPointRequest {
+    /**
+     * Creates a new AXActionAtPointRequest instance.
+     * @param {Partial<AXActionAtPointRequest>} [$$source = {}] - The source object to create the AXActionAtPointRequest.
+     */
+    constructor($$source = {}) {
+        if (!("x" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["x"] = 0;
+        }
+        if (!("y" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["y"] = 0;
+        }
+        if (!("action" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["action"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AXActionAtPointRequest instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {AXActionAtPointRequest}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new AXActionAtPointRequest(/** @type {Partial<AXActionAtPointRequest>} */($$parsedSource));
+    }
+}
+
+export class AXActionRequest {
+    /**
+     * Creates a new AXActionRequest instance.
+     * @param {Partial<AXActionRequest>} [$$source = {}] - The source object to create the AXActionRequest.
+     */
+    constructor($$source = {}) {
+        if (!("action" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["action"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AXActionRequest instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {AXActionRequest}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new AXActionRequest(/** @type {Partial<AXActionRequest>} */($$parsedSource));
+    }
+}
+
 export class ActionResult {
     /**
      * Creates a new ActionResult instance.
@@ -477,6 +547,20 @@ export class CaptureRegionRequest {
              */
             this["region"] = (new Region());
         }
+        if (!("max_image_width" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["max_image_width"] = 0;
+        }
+        if (!("max_image_height" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["max_image_height"] = 0;
+        }
 
         Object.assign(this, $$source);
     }
@@ -508,6 +592,20 @@ export class CaptureRequest {
              * @type {string}
              */
             this["file_name"] = "";
+        }
+        if (!("max_image_width" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["max_image_width"] = 0;
+        }
+        if (!("max_image_height" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["max_image_height"] = 0;
         }
 
         Object.assign(this, $$source);
@@ -558,6 +656,27 @@ export class CaptureResult {
              */
             this["scale"] = (new Scale());
         }
+        if (!("original_size" in $$source)) {
+            /**
+             * @member
+             * @type {Size}
+             */
+            this["original_size"] = (new Size());
+        }
+        if (!("delivered_size" in $$source)) {
+            /**
+             * @member
+             * @type {Size}
+             */
+            this["delivered_size"] = (new Size());
+        }
+        if (!("original_scale" in $$source)) {
+            /**
+             * @member
+             * @type {Scale}
+             */
+            this["original_scale"] = (new Scale());
+        }
 
         Object.assign(this, $$source);
     }
@@ -570,12 +689,24 @@ export class CaptureResult {
     static createFrom($$source = {}) {
         const $$createField2_0 = $$createType8;
         const $$createField3_0 = $$createType9;
+        const $$createField4_0 = $$createType10;
+        const $$createField5_0 = $$createType10;
+        const $$createField6_0 = $$createType9;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("offset" in $$parsedSource) {
             $$parsedSource["offset"] = $$createField2_0($$parsedSource["offset"]);
         }
         if ("scale" in $$parsedSource) {
             $$parsedSource["scale"] = $$createField3_0($$parsedSource["scale"]);
+        }
+        if ("original_size" in $$parsedSource) {
+            $$parsedSource["original_size"] = $$createField4_0($$parsedSource["original_size"]);
+        }
+        if ("delivered_size" in $$parsedSource) {
+            $$parsedSource["delivered_size"] = $$createField5_0($$parsedSource["delivered_size"]);
+        }
+        if ("original_scale" in $$parsedSource) {
+            $$parsedSource["original_scale"] = $$createField6_0($$parsedSource["original_scale"]);
         }
         return new CaptureResult(/** @type {Partial<CaptureResult>} */($$parsedSource));
     }
@@ -759,7 +890,7 @@ export class ColorPointResult {
      */
     static createFrom($$source = {}) {
         const $$createField0_0 = $$createType8;
-        const $$createField1_0 = $$createType10;
+        const $$createField1_0 = $$createType11;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("point" in $$parsedSource) {
             $$parsedSource["point"] = $$createField0_0($$parsedSource["point"]);
@@ -836,7 +967,7 @@ export class ColorQueryRequest {
      * @returns {ColorQueryRequest}
      */
     static createFrom($$source = {}) {
-        const $$createField4_0 = $$createType11;
+        const $$createField4_0 = $$createType12;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("region" in $$parsedSource) {
             $$parsedSource["region"] = $$createField4_0($$parsedSource["region"]);
@@ -896,8 +1027,8 @@ export class DiagnosticsResponse {
      * @returns {DiagnosticsResponse}
      */
     static createFrom($$source = {}) {
-        const $$createField0_0 = $$createType12;
-        const $$createField1_0 = $$createType14;
+        const $$createField0_0 = $$createType13;
+        const $$createField1_0 = $$createType15;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("report" in $$parsedSource) {
             $$parsedSource["report"] = $$createField0_0($$parsedSource["report"]);
@@ -951,6 +1082,240 @@ export class FeatureStatus {
     }
 }
 
+export class FocusedWindowMetadataResult {
+    /**
+     * Creates a new FocusedWindowMetadataResult instance.
+     * @param {Partial<FocusedWindowMetadataResult>} [$$source = {}] - The source object to create the FocusedWindowMetadataResult.
+     */
+    constructor($$source = {}) {
+        if (!("handle" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["handle"] = 0;
+        }
+        if (!("title" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["title"] = "";
+        }
+        if (!("role" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["role"] = "";
+        }
+        if (!("subrole" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["subrole"] = "";
+        }
+        if (!("region" in $$source)) {
+            /**
+             * @member
+             * @type {Region}
+             */
+            this["region"] = (new Region());
+        }
+        if (!("region_known" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["region_known"] = false;
+        }
+        if (!("focused" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["focused"] = false;
+        }
+        if (!("main" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["main"] = false;
+        }
+        if (!("minimized" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["minimized"] = false;
+        }
+        if (!("owner_pid" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["owner_pid"] = 0;
+        }
+        if (!("owner_name" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["owner_name"] = "";
+        }
+        if (!("bundle_id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["bundle_id"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FocusedWindowMetadataResult instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {FocusedWindowMetadataResult}
+     */
+    static createFrom($$source = {}) {
+        const $$createField4_0 = $$createType7;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("region" in $$parsedSource) {
+            $$parsedSource["region"] = $$createField4_0($$parsedSource["region"]);
+        }
+        return new FocusedWindowMetadataResult(/** @type {Partial<FocusedWindowMetadataResult>} */($$parsedSource));
+    }
+}
+
+export class ImagePoint {
+    /**
+     * Creates a new ImagePoint instance.
+     * @param {Partial<ImagePoint>} [$$source = {}] - The source object to create the ImagePoint.
+     */
+    constructor($$source = {}) {
+        if (!("x" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["x"] = 0;
+        }
+        if (!("y" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["y"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ImagePoint instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {ImagePoint}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ImagePoint(/** @type {Partial<ImagePoint>} */($$parsedSource));
+    }
+}
+
+export class ImagePointTranslationResult {
+    /**
+     * Creates a new ImagePointTranslationResult instance.
+     * @param {Partial<ImagePointTranslationResult>} [$$source = {}] - The source object to create the ImagePointTranslationResult.
+     */
+    constructor($$source = {}) {
+        if (!("path" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["path"] = "";
+        }
+        if (!("requested_delivered_point" in $$source)) {
+            /**
+             * @member
+             * @type {Point}
+             */
+            this["requested_delivered_point"] = (new Point());
+        }
+        if (!("original_image_point" in $$source)) {
+            /**
+             * @member
+             * @type {ImagePoint}
+             */
+            this["original_image_point"] = (new ImagePoint());
+        }
+        if (!("exact_screen_point" in $$source)) {
+            /**
+             * @member
+             * @type {ImagePoint}
+             */
+            this["exact_screen_point"] = (new ImagePoint());
+        }
+        if (!("absolute_screen_point" in $$source)) {
+            /**
+             * @member
+             * @type {Point}
+             */
+            this["absolute_screen_point"] = (new Point());
+        }
+        if (!("capture" in $$source)) {
+            /**
+             * @member
+             * @type {CaptureResult}
+             */
+            this["capture"] = (new CaptureResult());
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ImagePointTranslationResult instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {ImagePointTranslationResult}
+     */
+    static createFrom($$source = {}) {
+        const $$createField1_0 = $$createType8;
+        const $$createField2_0 = $$createType16;
+        const $$createField3_0 = $$createType16;
+        const $$createField4_0 = $$createType8;
+        const $$createField5_0 = $$createType17;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("requested_delivered_point" in $$parsedSource) {
+            $$parsedSource["requested_delivered_point"] = $$createField1_0($$parsedSource["requested_delivered_point"]);
+        }
+        if ("original_image_point" in $$parsedSource) {
+            $$parsedSource["original_image_point"] = $$createField2_0($$parsedSource["original_image_point"]);
+        }
+        if ("exact_screen_point" in $$parsedSource) {
+            $$parsedSource["exact_screen_point"] = $$createField3_0($$parsedSource["exact_screen_point"]);
+        }
+        if ("absolute_screen_point" in $$parsedSource) {
+            $$parsedSource["absolute_screen_point"] = $$createField4_0($$parsedSource["absolute_screen_point"]);
+        }
+        if ("capture" in $$parsedSource) {
+            $$parsedSource["capture"] = $$createField5_0($$parsedSource["capture"]);
+        }
+        return new ImagePointTranslationResult(/** @type {Partial<ImagePointTranslationResult>} */($$parsedSource));
+    }
+}
+
 export class KeyboardKeysRequest {
     /**
      * Creates a new KeyboardKeysRequest instance.
@@ -981,7 +1346,7 @@ export class KeyboardKeysRequest {
      * @returns {KeyboardKeysRequest}
      */
     static createFrom($$source = {}) {
-        const $$createField0_0 = $$createType15;
+        const $$createField0_0 = $$createType18;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("keys" in $$parsedSource) {
             $$parsedSource["keys"] = $$createField0_0($$parsedSource["keys"]);
@@ -1291,6 +1656,141 @@ export class MouseScrollRequest {
     }
 }
 
+export class PermissionReadinessResult {
+    /**
+     * Creates a new PermissionReadinessResult instance.
+     * @param {Partial<PermissionReadinessResult>} [$$source = {}] - The source object to create the PermissionReadinessResult.
+     */
+    constructor($$source = {}) {
+        if (!("permissions" in $$source)) {
+            /**
+             * @member
+             * @type {PermissionSnapshotResult}
+             */
+            this["permissions"] = (new PermissionSnapshotResult());
+        }
+        if (!("capabilities" in $$source)) {
+            /**
+             * @member
+             * @type {FeatureStatus[]}
+             */
+            this["capabilities"] = [];
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PermissionReadinessResult instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {PermissionReadinessResult}
+     */
+    static createFrom($$source = {}) {
+        const $$createField0_0 = $$createType19;
+        const $$createField1_0 = $$createType15;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("permissions" in $$parsedSource) {
+            $$parsedSource["permissions"] = $$createField0_0($$parsedSource["permissions"]);
+        }
+        if ("capabilities" in $$parsedSource) {
+            $$parsedSource["capabilities"] = $$createField1_0($$parsedSource["capabilities"]);
+        }
+        return new PermissionReadinessResult(/** @type {Partial<PermissionReadinessResult>} */($$parsedSource));
+    }
+}
+
+export class PermissionSnapshotResult {
+    /**
+     * Creates a new PermissionSnapshotResult instance.
+     * @param {Partial<PermissionSnapshotResult>} [$$source = {}] - The source object to create the PermissionSnapshotResult.
+     */
+    constructor($$source = {}) {
+        if (!("accessibility" in $$source)) {
+            /**
+             * @member
+             * @type {PermissionStatusResult}
+             */
+            this["accessibility"] = (new PermissionStatusResult());
+        }
+        if (!("screen_recording" in $$source)) {
+            /**
+             * @member
+             * @type {PermissionStatusResult}
+             */
+            this["screen_recording"] = (new PermissionStatusResult());
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PermissionSnapshotResult instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {PermissionSnapshotResult}
+     */
+    static createFrom($$source = {}) {
+        const $$createField0_0 = $$createType20;
+        const $$createField1_0 = $$createType20;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("accessibility" in $$parsedSource) {
+            $$parsedSource["accessibility"] = $$createField0_0($$parsedSource["accessibility"]);
+        }
+        if ("screen_recording" in $$parsedSource) {
+            $$parsedSource["screen_recording"] = $$createField1_0($$parsedSource["screen_recording"]);
+        }
+        return new PermissionSnapshotResult(/** @type {Partial<PermissionSnapshotResult>} */($$parsedSource));
+    }
+}
+
+export class PermissionStatusResult {
+    /**
+     * Creates a new PermissionStatusResult instance.
+     * @param {Partial<PermissionStatusResult>} [$$source = {}] - The source object to create the PermissionStatusResult.
+     */
+    constructor($$source = {}) {
+        if (!("granted" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["granted"] = false;
+        }
+        if (!("supported" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["supported"] = false;
+        }
+        if (!("reason" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["reason"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PermissionStatusResult instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {PermissionStatusResult}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new PermissionStatusResult(/** @type {Partial<PermissionStatusResult>} */($$parsedSource));
+    }
+}
+
 export class Point {
     /**
      * Creates a new Point instance.
@@ -1477,6 +1977,140 @@ export class ScreenSizeResult {
     static createFrom($$source = {}) {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new ScreenSizeResult(/** @type {Partial<ScreenSizeResult>} */($$parsedSource));
+    }
+}
+
+export class Size {
+    /**
+     * Creates a new Size instance.
+     * @param {Partial<Size>} [$$source = {}] - The source object to create the Size.
+     */
+    constructor($$source = {}) {
+        if (!("width" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["width"] = 0;
+        }
+        if (!("height" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["height"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Size instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {Size}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new Size(/** @type {Partial<Size>} */($$parsedSource));
+    }
+}
+
+export class UIElementMetadataResult {
+    /**
+     * Creates a new UIElementMetadataResult instance.
+     * @param {Partial<UIElementMetadataResult>} [$$source = {}] - The source object to create the UIElementMetadataResult.
+     */
+    constructor($$source = {}) {
+        if (!("role" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["role"] = "";
+        }
+        if (!("subrole" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["subrole"] = "";
+        }
+        if (!("title" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["title"] = "";
+        }
+        if (!("description" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["description"] = "";
+        }
+        if (!("value" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["value"] = "";
+        }
+        if (!("enabled" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["enabled"] = false;
+        }
+        if (!("focused" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["focused"] = false;
+        }
+        if (!("frame" in $$source)) {
+            /**
+             * @member
+             * @type {Region}
+             */
+            this["frame"] = (new Region());
+        }
+        if (!("frame_known" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["frame_known"] = false;
+        }
+        if (!("actions" in $$source)) {
+            /**
+             * @member
+             * @type {string[]}
+             */
+            this["actions"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new UIElementMetadataResult instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {UIElementMetadataResult}
+     */
+    static createFrom($$source = {}) {
+        const $$createField7_0 = $$createType7;
+        const $$createField9_0 = $$createType18;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("frame" in $$parsedSource) {
+            $$parsedSource["frame"] = $$createField7_0($$parsedSource["frame"]);
+        }
+        if ("actions" in $$parsedSource) {
+            $$parsedSource["actions"] = $$createField9_0($$parsedSource["actions"]);
+        }
+        return new UIElementMetadataResult(/** @type {Partial<UIElementMetadataResult>} */($$parsedSource));
     }
 }
 
@@ -1698,9 +2332,14 @@ const $$createType6 = AgentUsage.createFrom;
 const $$createType7 = Region.createFrom;
 const $$createType8 = Point.createFrom;
 const $$createType9 = Scale.createFrom;
-const $$createType10 = Color.createFrom;
-const $$createType11 = $Create.Nullable($$createType7);
-const $$createType12 = guttesting$0.EnvironmentReport.createFrom;
-const $$createType13 = FeatureStatus.createFrom;
-const $$createType14 = $Create.Array($$createType13);
-const $$createType15 = $Create.Array($Create.Any);
+const $$createType10 = Size.createFrom;
+const $$createType11 = Color.createFrom;
+const $$createType12 = $Create.Nullable($$createType7);
+const $$createType13 = guttesting$0.EnvironmentReport.createFrom;
+const $$createType14 = FeatureStatus.createFrom;
+const $$createType15 = $Create.Array($$createType14);
+const $$createType16 = ImagePoint.createFrom;
+const $$createType17 = CaptureResult.createFrom;
+const $$createType18 = $Create.Array($Create.Any);
+const $$createType19 = PermissionSnapshotResult.createFrom;
+const $$createType20 = PermissionStatusResult.createFrom;

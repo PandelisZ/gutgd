@@ -1,18 +1,14 @@
-import { Button, Field, Input, Textarea } from '@fluentui/react-components'
+import { Button, Field, Textarea } from '@fluentui/react-components'
 import { Events } from '@wailsio/runtime'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 import PageHeader from '../components/PageHeader'
-import Panel from '../components/Panel'
 import { formatPayload } from '../lib/format'
 import { api } from '../lib/api'
 
 export default function AgentView() {
-  const [apiKey, setAPIKey] = useState('')
-  const [model, setModel] = useState('gpt-5.4')
-  const [models, setModels] = useState([])
-  const [reasoningEffort, setReasoningEffort] = useState('medium')
-  const [systemPrompt, setSystemPrompt] = useState('')
+  const navigate = useNavigate()
   const [message, setMessage] = useState('List the active window title and current mouse position.')
   const [messages, setMessages] = useState([])
   const [timeline, setTimeline] = useState([])
@@ -25,17 +21,12 @@ export default function AgentView() {
   const [error, setError] = useState('')
   const transcriptRef = useRef(null)
   const transcriptEndRef = useRef(null)
+  const pageEndRef = useRef(null)
 
   useEffect(() => {
     async function load() {
       try {
-        const settings = await api.getAgentSettings()
-        setAPIKey(settings.api_key || '')
-        setModel(settings.model || 'gpt-5.4')
-        setReasoningEffort(settings.reasoning_effort || 'medium')
-        setSystemPrompt(settings.system_prompt || '')
-        const options = await api.listAgentModels()
-        setModels(options || [])
+        await api.getAgentSettings()
       } catch (nextError) {
         setError(nextError.message || String(nextError))
       } finally {
@@ -76,34 +67,12 @@ export default function AgentView() {
     }
     const frameID = requestAnimationFrame(() => {
       transcriptEnd.scrollIntoView({ block: 'end' })
+      pageEndRef.current?.scrollIntoView({ block: 'end' })
     })
     return () => {
       cancelAnimationFrame(frameID)
     }
   }, [timeline])
-
-  async function saveSettings() {
-    setSavingSettings(true)
-    setError('')
-    setStatus('')
-    try {
-      const saved = await api.saveAgentSettings({
-        api_key: apiKey,
-        model,
-        reasoning_effort: reasoningEffort,
-        system_prompt: systemPrompt
-      })
-      setAPIKey(saved.api_key || '')
-      setModel(saved.model || 'gpt-5.4')
-      setReasoningEffort(saved.reasoning_effort || 'medium')
-      setSystemPrompt(saved.system_prompt || '')
-      setStatus('Settings saved.')
-    } catch (nextError) {
-      setError(nextError.message || String(nextError))
-    } finally {
-      setSavingSettings(false)
-    }
-  }
 
   async function sendMessage() {
     const content = message.trim()
@@ -144,84 +113,28 @@ export default function AgentView() {
     <>
       <PageHeader
         title="Agent"
-        description="Configure the desktop agent, inspect its live tool activity, and run desktop tasks from a focused chat workspace."
+        description="Run desktop tasks from a focused fullscreen chat workspace."
         actions={
-          <Button appearance="primary" onClick={saveSettings} disabled={savingSettings || loadingSettings}>
-            {savingSettings ? 'Saving…' : 'Save settings'}
+          <Button onClick={() => navigate('/agent-settings')}>
+            Open settings
           </Button>
         }
       />
 
-      <div className="gutgd-list gutgd-agentPage">
-        <Panel
-          className="gutgd-agentSettingsCard"
-          title="OpenAI settings"
-          description="These settings are stored locally for this desktop app profile."
-        >
-          <div className="gutgd-grid2">
-            <Field label="API key">
-              <Input type="password" value={apiKey} onChange={(_, data) => setAPIKey(data.value)} />
-            </Field>
-            <Field label="Model">
-              <select className="gutgd-nativeSelect" value={model} onChange={(event) => setModel(event.target.value)}>
-                {models.map((item) => (
-                  <option key={item.id} value={item.id}>{item.id}</option>
-                ))}
-                {!models.some((item) => item.id === model) ? <option value={model}>{model}</option> : null}
-              </select>
-            </Field>
-          </div>
-          <div className="gutgd-grid2">
-            <Field label="Reasoning effort">
-              <select className="gutgd-nativeSelect" value={reasoningEffort} onChange={(event) => setReasoningEffort(event.target.value)}>
-                <option value="none">none</option>
-                <option value="minimal">minimal</option>
-                <option value="low">low</option>
-                <option value="medium">medium</option>
-                <option value="high">high</option>
-                <option value="xhigh">xhigh</option>
-              </select>
-            </Field>
-            <Field label="System prompt">
-              <Textarea value={systemPrompt} onChange={(_, data) => setSystemPrompt(data.value)} />
-            </Field>
-          </div>
-          <div className="gutgd-agentFeedback">
-            <div className="gutgd-agentMetaChips">
-              <span className="gutgd-agentChip">
-                <strong>Model</strong>
-                <span>{model}</span>
-              </span>
-              <span className="gutgd-agentChip">
-                <strong>Reasoning</strong>
-                <span>{reasoningEffort}</span>
-              </span>
-              <span className={`gutgd-agentChip ${sending ? 'gutgd-agentChip-live' : ''}`}>
-                <strong>State</strong>
-                <span>{sending ? 'Running' : loadingSettings ? 'Loading' : 'Ready'}</span>
-              </span>
-            </div>
-            {status ? <div className="gutgd-statusNote gutgd-agentNotice">{status}</div> : null}
-            {error ? <div className="gutgd-errorNote gutgd-agentNotice gutgd-agentErrorBlock">{error}</div> : null}
-          </div>
-        </Panel>
-
+      <div className="gutgd-list gutgd-agentPage gutgd-agentPageFull">
         <section className="gutgd-rowCard gutgd-agentShell">
           <div className="gutgd-rowLead gutgd-agentIntro">
             <div className="gutgd-rowLeadGlyph">◈</div>
             <div>
-              <h3>Tool-calling chat</h3>
+              <h3>Desktop agent workspace</h3>
               <p>Review the live transcript, watch tool calls stream in, and keep the conversation pinned to the latest result.</p>
             </div>
             <div className="gutgd-agentMetaChips gutgd-agentChatChips">
-              <span className="gutgd-agentChip">
-                <strong>Messages</strong>
-                <span>{timeline.length}</span>
+              <span className={`gutgd-agentChip ${sending ? 'gutgd-agentChip-live' : ''}`}>
+                <strong>State</strong>
+                <span>{sending ? 'Running' : loadingSettings ? 'Loading' : 'Ready'}</span>
               </span>
-              <span className="gutgd-agentChip">
-                <strong>Session</strong>
-                <span>{responseID ? 'continued' : 'new'}</span>
-              </span>
+              {status ? <span className="gutgd-agentChip"><strong>Status</strong><span>{status}</span></span> : null}
             </div>
           </div>
 
@@ -277,6 +190,7 @@ export default function AgentView() {
           </div>
         </section>
       </div>
+      <div ref={pageEndRef} aria-hidden="true" />
     </>
   )
 }

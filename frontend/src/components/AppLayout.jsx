@@ -205,7 +205,7 @@ export default function AppLayout({ bridgeMode, currentItem, children }) {
   const styles = useStyles()
   const navigate = useNavigate()
   const location = useLocation()
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true)
 
   return (
     <div className={styles.frame}>
@@ -264,7 +264,7 @@ export default function AppLayout({ bridgeMode, currentItem, children }) {
               >
                 {isSidebarCollapsed ? '☰' : '←'}
               </Button>
-              <Text size={200} className={styles.topbarTitle}>Settings-style debugger</Text>
+              <Text size={200} className={styles.topbarTitle}>Desktop workspace</Text>
             </div>
 
             <div className={mergeClasses(styles.searchWrap, styles.responsiveSearchWrap)}>
