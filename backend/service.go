@@ -315,10 +315,67 @@ type AXActionRequest struct {
 	Action string `json:"action"`
 }
 
+type SearchAXElementsRequest struct {
+	Scope               string `json:"scope"`
+	Role                string `json:"role"`
+	Subrole             string `json:"subrole"`
+	TitleContains       string `json:"title_contains"`
+	ValueContains       string `json:"value_contains"`
+	DescriptionContains string `json:"description_contains"`
+	Action              string `json:"action"`
+	Enabled             *bool  `json:"enabled"`
+	Focused             *bool  `json:"focused"`
+	Limit               int    `json:"limit"`
+	MaxDepth            int    `json:"max_depth"`
+}
+
+type AXElementRefResult struct {
+	Scope        string `json:"scope"`
+	OwnerPID     int    `json:"owner_pid"`
+	WindowHandle uint64 `json:"window_handle"`
+	Path         []int  `json:"path"`
+}
+
+type AXElementMatchResult struct {
+	Ref              AXElementRefResult      `json:"ref"`
+	Metadata         UIElementMetadataResult `json:"metadata"`
+	Depth            int                     `json:"depth"`
+	ActionPoint      Point                   `json:"action_point"`
+	ActionPointKnown bool                    `json:"action_point_known"`
+}
+
+type SearchAXElementsResult struct {
+	Query   SearchAXElementsRequest `json:"query"`
+	Matches []AXElementMatchResult  `json:"matches"`
+	Message string                  `json:"message"`
+}
+
+type FocusAXElementRequest struct {
+	Ref AXElementRefResult `json:"ref"`
+}
+
+type FocusAXElementResult struct {
+	OK      bool               `json:"ok"`
+	Ref     AXElementRefResult `json:"ref"`
+	Message string             `json:"message"`
+}
+
 type AXActionAtPointRequest struct {
 	X      int    `json:"x"`
 	Y      int    `json:"y"`
 	Action string `json:"action"`
+}
+
+type PerformAXElementActionOnRefRequest struct {
+	Ref    AXElementRefResult `json:"ref"`
+	Action string             `json:"action"`
+}
+
+type PerformAXElementActionResult struct {
+	OK      bool               `json:"ok"`
+	Ref     AXElementRefResult `json:"ref"`
+	Action  string             `json:"action"`
+	Message string             `json:"message"`
 }
 
 type ColorPointResult struct {
@@ -443,6 +500,9 @@ func (s *Service) GetPermissionReadiness() (PermissionReadinessResult, error) {
 			capabilityFeatureStatus(capabilities.Status(common.CapabilityAXFocusedElementAction), "available through the native focused-element accessibility action backend"),
 			capabilityFeatureStatus(capabilities.Status(common.CapabilityAXElementActionAtPoint), "available through the native element-at-point accessibility action backend"),
 			capabilityFeatureStatus(capabilities.Status(common.CapabilityAXElementFocusAtPoint), "available through the native element-at-point accessibility focus backend"),
+			capabilityFeatureStatus(capabilities.Status(common.CapabilityAXElementSearch), "available through the native AX element search backend"),
+			capabilityFeatureStatus(capabilities.Status(common.CapabilityAXElementFocusMatch), "available through the native AX element ref focus backend"),
+			capabilityFeatureStatus(capabilities.Status(common.CapabilityAXElementActionMatch), "available through the native AX element ref action backend"),
 		},
 		Message: "These accessibility capability entries back the AX metadata and action tools.",
 	}, nil
@@ -581,6 +641,90 @@ func (s *Service) FocusElementAtPoint(req PointRequest) (ActionResult, error) {
 		return ActionResult{}, err
 	}
 	return ActionResult{OK: true, Message: fmt.Sprintf("Focused element at (%d, %d)", req.X, req.Y)}, nil
+}
+
+func (s *Service) SearchAXElements(req SearchAXElementsRequest) (SearchAXElementsResult, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	query, err := parseAXElementSearchQuery(req)
+	if err != nil {
+		return SearchAXElementsResult{}, err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	accessibility, err := s.nut.Registry.Accessibility()
+	if err != nil {
+		return SearchAXElementsResult{}, err
+	}
+	matches, err := accessibility.SearchAXElements(ctx, query)
+	if err != nil {
+		return SearchAXElementsResult{}, err
+	}
+	resultMatches := make([]AXElementMatchResult, 0, len(matches))
+	for _, match := range matches {
+		resultMatches = append(resultMatches, axElementMatchResultFromCommon(match))
+	}
+	return SearchAXElementsResult{
+		Query:   searchAXElementsRequestFromCommon(query),
+		Matches: resultMatches,
+		Message: fmt.Sprintf("Found %d AX element matches.", len(resultMatches)),
+	}, nil
+}
+
+func (s *Service) FocusAXElement(req FocusAXElementRequest) (FocusAXElementResult, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	ref, err := parseAXElementRef(req.Ref)
+	if err != nil {
+		return FocusAXElementResult{}, err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	accessibility, err := s.nut.Registry.Accessibility()
+	if err != nil {
+		return FocusAXElementResult{}, err
+	}
+	if err := accessibility.FocusAXElement(ctx, ref); err != nil {
+		return FocusAXElementResult{}, err
+	}
+	return FocusAXElementResult{OK: true, Ref: axElementRefResultFromCommon(ref), Message: "Focused AX element by ref"}, nil
+}
+
+func (s *Service) PerformAXElementAction(req PerformAXElementActionOnRefRequest) (PerformAXElementActionResult, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	ref, err := parseAXElementRef(req.Ref)
+	if err != nil {
+		return PerformAXElementActionResult{}, err
+	}
+	action, err := parseAXAction(req.Action)
+	if err != nil {
+		return PerformAXElementActionResult{}, err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	accessibility, err := s.nut.Registry.Accessibility()
+	if err != nil {
+		return PerformAXElementActionResult{}, err
+	}
+	if err := accessibility.PerformAXElementAction(ctx, ref, action); err != nil {
+		return PerformAXElementActionResult{}, err
+	}
+	return PerformAXElementActionResult{
+		OK:      true,
+		Ref:     axElementRefResultFromCommon(ref),
+		Action:  string(action),
+		Message: fmt.Sprintf("Performed %s on AX element ref", action),
+	}, nil
 }
 
 func (s *Service) GetWindowAccessibilitySnapshot(req WindowAccessibilitySnapshotRequest) (WindowAccessibilitySnapshotResult, error) {
@@ -2119,6 +2263,9 @@ func featureStatusesForGOOS(goos string, report guttesting.Report) []FeatureStat
 		toolStatusFromCapability("perform_focused_element_action", report.Capabilities.Status(common.CapabilityAXFocusedElementAction), "available through the native focused-element accessibility action backend"),
 		toolStatusFromCapability("perform_element_action_at_point", report.Capabilities.Status(common.CapabilityAXElementActionAtPoint), "available through the native element-at-point accessibility action backend"),
 		toolStatusFromCapability("focus_element_at_point", report.Capabilities.Status(common.CapabilityAXElementFocusAtPoint), "available through the native element-at-point accessibility focus backend"),
+		toolStatusFromCapability("search_ax_elements", report.Capabilities.Status(common.CapabilityAXElementSearch), "available through the native AX element search backend"),
+		toolStatusFromCapability("focus_ax_element", report.Capabilities.Status(common.CapabilityAXElementFocusMatch), "available through the native AX element ref focus backend"),
+		toolStatusFromCapability("perform_ax_element_action", report.Capabilities.Status(common.CapabilityAXElementActionMatch), "available through the native AX element ref action backend"),
 		toolStatusFromCapability("minimize_window", report.Capabilities.Status(common.CapabilityWindowMinimize), "available through the native window.minimize backend"),
 		toolStatusFromCapability("restore_window", report.Capabilities.Status(common.CapabilityWindowRestore), "available through the native window.restore backend"),
 		FeatureStatus{
@@ -2253,6 +2400,105 @@ func uiElementMetadataResultFromCommon(metadata common.UIElementMetadata) UIElem
 		FrameKnown:  metadata.FrameKnown,
 		Actions:     actions,
 	}
+}
+
+func searchAXElementsRequestFromCommon(query common.AXElementSearchQuery) SearchAXElementsRequest {
+	return SearchAXElementsRequest{
+		Scope:               string(query.Scope),
+		Role:                query.Role,
+		Subrole:             query.Subrole,
+		TitleContains:       query.TitleContains,
+		ValueContains:       query.ValueContains,
+		DescriptionContains: query.DescriptionContains,
+		Action:              query.Action,
+		Enabled:             query.Enabled,
+		Focused:             query.Focused,
+		Limit:               query.Limit,
+		MaxDepth:            query.MaxDepth,
+	}
+}
+
+func axElementRefResultFromCommon(ref common.AXElementRef) AXElementRefResult {
+	return AXElementRefResult{
+		Scope:        string(ref.Scope),
+		OwnerPID:     ref.OwnerPID,
+		WindowHandle: uint64(ref.WindowHandle),
+		Path:         append([]int(nil), ref.Path...),
+	}
+}
+
+func axElementMatchResultFromCommon(match common.AXElementMatch) AXElementMatchResult {
+	return AXElementMatchResult{
+		Ref:              axElementRefResultFromCommon(match.Ref),
+		Metadata:         uiElementMetadataResultFromCommon(match.Metadata),
+		Depth:            match.Depth,
+		ActionPoint:      pointFromCommon(match.ActionPoint),
+		ActionPointKnown: match.ActionPointKnown,
+	}
+}
+
+func pointFromCommon(point common.Point) Point {
+	return Point{X: point.X, Y: point.Y}
+}
+
+func parseAXSearchScope(value string) (common.AXSearchScope, error) {
+	scope := common.AXSearchScope(strings.TrimSpace(value))
+	switch scope {
+	case common.AXSearchScopeFocusedWindow, common.AXSearchScopeFrontmostApplication:
+		return scope, nil
+	default:
+		return "", fmt.Errorf("unsupported AX search scope %q", value)
+	}
+}
+
+func parseAXElementSearchQuery(req SearchAXElementsRequest) (common.AXElementSearchQuery, error) {
+	scope, err := parseAXSearchScope(req.Scope)
+	if err != nil {
+		return common.AXElementSearchQuery{}, err
+	}
+	if req.Limit <= 0 {
+		return common.AXElementSearchQuery{}, fmt.Errorf("limit must be > 0")
+	}
+	if req.MaxDepth < 0 {
+		return common.AXElementSearchQuery{}, fmt.Errorf("max_depth must be >= 0")
+	}
+	if strings.TrimSpace(req.Action) != "" {
+		if _, err := parseAXAction(req.Action); err != nil {
+			return common.AXElementSearchQuery{}, err
+		}
+	}
+	return common.AXElementSearchQuery{
+		Scope:               scope,
+		Role:                req.Role,
+		Subrole:             req.Subrole,
+		TitleContains:       req.TitleContains,
+		ValueContains:       req.ValueContains,
+		DescriptionContains: req.DescriptionContains,
+		Action:              req.Action,
+		Enabled:             req.Enabled,
+		Focused:             req.Focused,
+		Limit:               req.Limit,
+		MaxDepth:            req.MaxDepth,
+	}, nil
+}
+
+func parseAXElementRef(req AXElementRefResult) (common.AXElementRef, error) {
+	scope, err := parseAXSearchScope(req.Scope)
+	if err != nil {
+		return common.AXElementRef{}, err
+	}
+	path := append([]int(nil), req.Path...)
+	for _, entry := range path {
+		if entry < 0 {
+			return common.AXElementRef{}, fmt.Errorf("ref.path entries must be non-negative")
+		}
+	}
+	return common.AXElementRef{
+		Scope:        scope,
+		OwnerPID:     req.OwnerPID,
+		WindowHandle: common.WindowHandle(req.WindowHandle),
+		Path:         path,
+	}, nil
 }
 
 func parseAXAction(value string) (common.AXAction, error) {

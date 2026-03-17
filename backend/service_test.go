@@ -149,6 +149,9 @@ func TestFeatureStatusesForGOOSDarwin(t *testing.T) {
 			common.CapabilityStatus{Capability: common.CapabilityAXFocusedWindowMetadata, Availability: common.AvailabilityPermissionBlocked, Reason: "Accessibility permission has not been granted"},
 			common.CapabilityStatus{Capability: common.CapabilityAXFocusedElementMetadata, Availability: common.AvailabilityUnsupported, Reason: "provider unavailable"},
 			common.CapabilityStatus{Capability: common.CapabilityAXElementAtPointMetadata, Availability: common.AvailabilityUnavailable, Reason: "temporarily disabled"},
+			common.CapabilityStatus{Capability: common.CapabilityAXElementSearch, Availability: common.AvailabilityPermissionBlocked, Reason: "Accessibility permission has not been granted"},
+			common.CapabilityStatus{Capability: common.CapabilityAXElementFocusMatch, Availability: common.AvailabilityUnsupported, Reason: "provider unavailable"},
+			common.CapabilityStatus{Capability: common.CapabilityAXElementActionMatch, Availability: common.AvailabilityUnavailable, Reason: "temporarily disabled"},
 			common.CapabilityStatus{Capability: common.CapabilityWindowMinimize, Availability: common.AvailabilityUnsupported, Reason: "minimize unsupported"},
 			common.CapabilityStatus{Capability: common.CapabilityWindowRestore, Availability: common.AvailabilityUnsupported, Reason: "restore unsupported"},
 		),
@@ -176,6 +179,9 @@ func TestFeatureStatusesForGOOSDarwin(t *testing.T) {
 		{id: "get_focused_window_metadata", availability: common.AvailabilityPermissionBlocked},
 		{id: "get_focused_element_metadata", availability: common.AvailabilityUnsupported},
 		{id: "get_element_at_point_metadata", availability: common.AvailabilityUnavailable},
+		{id: "search_ax_elements", availability: common.AvailabilityPermissionBlocked},
+		{id: "focus_ax_element", availability: common.AvailabilityUnsupported},
+		{id: "perform_ax_element_action", availability: common.AvailabilityUnavailable},
 	} {
 		status := requireFeatureStatus(t, statuses, test.id)
 		if status.Availability != string(test.availability) {
@@ -211,12 +217,15 @@ func TestFeatureStatusesForGOOSNonDarwin(t *testing.T) {
 			common.CapabilityStatus{Capability: common.CapabilityAXFocusedElementAction, Availability: common.AvailabilityAvailable},
 			common.CapabilityStatus{Capability: common.CapabilityAXElementActionAtPoint, Availability: common.AvailabilityAvailable},
 			common.CapabilityStatus{Capability: common.CapabilityAXElementFocusAtPoint, Availability: common.AvailabilityAvailable},
+			common.CapabilityStatus{Capability: common.CapabilityAXElementSearch, Availability: common.AvailabilityAvailable},
+			common.CapabilityStatus{Capability: common.CapabilityAXElementFocusMatch, Availability: common.AvailabilityAvailable},
+			common.CapabilityStatus{Capability: common.CapabilityAXElementActionMatch, Availability: common.AvailabilityAvailable},
 			common.CapabilityStatus{Capability: common.CapabilityWindowMinimize, Availability: common.AvailabilityAvailable},
 			common.CapabilityStatus{Capability: common.CapabilityWindowRestore, Availability: common.AvailabilityAvailable},
 		),
 	})
 
-	for _, id := range []string{"capture_screen", "capture_region", "tap_keys", "press_keys", "release_keys", "highlight_region", "get_permission_readiness", "get_focused_element_metadata", "get_element_at_point_metadata", "raise_focused_window", "perform_focused_element_action", "perform_element_action_at_point", "focus_element_at_point", "minimize_window", "restore_window"} {
+	for _, id := range []string{"capture_screen", "capture_region", "tap_keys", "press_keys", "release_keys", "highlight_region", "get_permission_readiness", "get_focused_element_metadata", "get_element_at_point_metadata", "raise_focused_window", "perform_focused_element_action", "perform_element_action_at_point", "focus_element_at_point", "search_ax_elements", "focus_ax_element", "perform_ax_element_action", "minimize_window", "restore_window"} {
 		status := requireFeatureStatus(t, statuses, id)
 		if status.Availability != string(common.AvailabilityAvailable) {
 			t.Fatalf("expected %s to be available off darwin, got %+v", id, status)
@@ -247,6 +256,9 @@ func TestGetPermissionReadinessPreservesCapabilityAvailability(t *testing.T) {
 			common.CapabilityStatus{Capability: common.CapabilityAXFocusedElementAction, Availability: common.AvailabilityPermissionBlocked, Reason: "Accessibility permission has not been granted"},
 			common.CapabilityStatus{Capability: common.CapabilityAXElementActionAtPoint, Availability: common.AvailabilityUnsupported, Reason: "provider unavailable"},
 			common.CapabilityStatus{Capability: common.CapabilityAXElementFocusAtPoint, Availability: common.AvailabilityUnavailable, Reason: "temporarily disabled"},
+			common.CapabilityStatus{Capability: common.CapabilityAXElementSearch, Availability: common.AvailabilityAvailable},
+			common.CapabilityStatus{Capability: common.CapabilityAXElementFocusMatch, Availability: common.AvailabilityPermissionBlocked, Reason: "Accessibility permission has not been granted"},
+			common.CapabilityStatus{Capability: common.CapabilityAXElementActionMatch, Availability: common.AvailabilityUnsupported, Reason: "provider unavailable"},
 		),
 	}
 	service := newTestServiceWithWindowsAndAccessibility(accessibility)
@@ -269,6 +281,9 @@ func TestGetPermissionReadinessPreservesCapabilityAvailability(t *testing.T) {
 		{id: string(common.CapabilityAXFocusedWindowMetadata), availability: common.AvailabilityPermissionBlocked},
 		{id: string(common.CapabilityAXFocusedElementMetadata), availability: common.AvailabilityUnsupported},
 		{id: string(common.CapabilityAXElementAtPointMetadata), availability: common.AvailabilityUnavailable},
+		{id: string(common.CapabilityAXElementSearch), availability: common.AvailabilityAvailable},
+		{id: string(common.CapabilityAXElementFocusMatch), availability: common.AvailabilityPermissionBlocked},
+		{id: string(common.CapabilityAXElementActionMatch), availability: common.AvailabilityUnsupported},
 	} {
 		status := requireFeatureStatus(t, result.Capabilities, test.id)
 		if status.Availability != string(test.availability) {
@@ -338,6 +353,103 @@ func TestAccessibilityActionMethodsRejectInvalidAction(t *testing.T) {
 	}
 	if _, err := service.PerformElementActionAtPoint(AXActionAtPointRequest{X: 1, Y: 2, Action: "AXDefinitelyUnsupportedSyntheticAction"}); err == nil {
 		t.Fatal("expected element-at-point action validation error")
+	}
+}
+
+func TestSearchAXElementMethods(t *testing.T) {
+	enabled := true
+	focused := false
+	accessibility := &fakeBackendAccessibilityProvider{
+		searchAXElementsMatches: []common.AXElementMatch{{
+			Ref: common.AXElementRef{Scope: common.AXSearchScopeFocusedWindow, OwnerPID: 77, WindowHandle: 42, Path: []int{1, 2}},
+			Metadata: common.UIElementMetadata{
+				Role:       "AXButton",
+				Title:      "Save",
+				Enabled:    true,
+				Frame:      common.Rect{X: 12, Y: 34, Width: 56, Height: 20},
+				FrameKnown: true,
+				Actions:    []string{"AXPress"},
+			},
+			Depth:            2,
+			ActionPoint:      common.Point{X: 20, Y: 40},
+			ActionPointKnown: true,
+		}},
+	}
+	service := newTestServiceWithWindowsAndAccessibility(accessibility)
+
+	searchResult, err := service.SearchAXElements(SearchAXElementsRequest{
+		Scope:               string(common.AXSearchScopeFocusedWindow),
+		Role:                "AXButton",
+		Subrole:             "",
+		TitleContains:       "Save",
+		ValueContains:       "",
+		DescriptionContains: "",
+		Action:              string(common.AXPress),
+		Enabled:             &enabled,
+		Focused:             &focused,
+		Limit:               3,
+		MaxDepth:            4,
+	})
+	if err != nil {
+		t.Fatalf("SearchAXElements returned error: %v", err)
+	}
+	if searchResult.Query.Scope != string(common.AXSearchScopeFocusedWindow) || searchResult.Query.Limit != 3 || searchResult.Query.MaxDepth != 4 {
+		t.Fatalf("unexpected search result query echo: %+v", searchResult.Query)
+	}
+	if accessibility.lastSearchAXQuery.Scope != common.AXSearchScopeFocusedWindow || accessibility.lastSearchAXQuery.Role != "AXButton" || accessibility.lastSearchAXQuery.Action != string(common.AXPress) {
+		t.Fatalf("unexpected forwarded search query: %+v", accessibility.lastSearchAXQuery)
+	}
+	if len(searchResult.Matches) != 1 {
+		t.Fatalf("expected one AX search match, got %+v", searchResult.Matches)
+	}
+	match := searchResult.Matches[0]
+	if match.Ref.Scope != string(common.AXSearchScopeFocusedWindow) || match.Ref.OwnerPID != 77 || match.Ref.WindowHandle != 42 {
+		t.Fatalf("unexpected AX ref result: %+v", match.Ref)
+	}
+	if len(match.Ref.Path) != 2 || match.Ref.Path[0] != 1 || match.Ref.Path[1] != 2 {
+		t.Fatalf("unexpected AX ref path: %+v", match.Ref.Path)
+	}
+	if match.Metadata.Title != "Save" || match.Metadata.Frame.Left != 12 || !match.ActionPointKnown || match.ActionPoint != (Point{X: 20, Y: 40}) {
+		t.Fatalf("unexpected AX match conversion: %+v", match)
+	}
+
+	focusResult, err := service.FocusAXElement(FocusAXElementRequest{Ref: match.Ref})
+	if err != nil {
+		t.Fatalf("FocusAXElement returned error: %v", err)
+	}
+	if !focusResult.OK || focusResult.Ref.WindowHandle != 42 || accessibility.lastFocusAXRef.WindowHandle != 42 {
+		t.Fatalf("unexpected focus-ax-element result/ref forwarding: result=%+v ref=%+v", focusResult, accessibility.lastFocusAXRef)
+	}
+
+	actionResult, err := service.PerformAXElementAction(PerformAXElementActionOnRefRequest{Ref: match.Ref, Action: "AXPress"})
+	if err != nil {
+		t.Fatalf("PerformAXElementAction returned error: %v", err)
+	}
+	if !actionResult.OK || actionResult.Action != "AXPress" || accessibility.lastPerformAXRef.WindowHandle != 42 || accessibility.lastPerformAXAction != common.AXPress {
+		t.Fatalf("unexpected perform-ax-element-action result/ref forwarding: result=%+v ref=%+v action=%q", actionResult, accessibility.lastPerformAXRef, accessibility.lastPerformAXAction)
+	}
+}
+
+func TestSearchAXElementValidation(t *testing.T) {
+	service := newTestServiceWithWindowsAndAccessibility(&fakeBackendAccessibilityProvider{})
+
+	if _, err := service.SearchAXElements(SearchAXElementsRequest{Scope: "bogus", Limit: 1, MaxDepth: 0}); err == nil {
+		t.Fatal("expected invalid AX search scope error")
+	}
+	if _, err := service.SearchAXElements(SearchAXElementsRequest{Scope: string(common.AXSearchScopeFocusedWindow), Limit: 0, MaxDepth: 0}); err == nil {
+		t.Fatal("expected limit validation error")
+	}
+	if _, err := service.SearchAXElements(SearchAXElementsRequest{Scope: string(common.AXSearchScopeFocusedWindow), Limit: 1, MaxDepth: -1}); err == nil {
+		t.Fatal("expected max_depth validation error")
+	}
+	if _, err := service.SearchAXElements(SearchAXElementsRequest{Scope: string(common.AXSearchScopeFocusedWindow), Action: "AXDefinitelyUnsupportedSyntheticAction", Limit: 1, MaxDepth: 0}); err == nil {
+		t.Fatal("expected action validation error")
+	}
+	if _, err := service.FocusAXElement(FocusAXElementRequest{Ref: AXElementRefResult{Scope: string(common.AXSearchScopeFocusedWindow), Path: []int{-1}}}); err == nil {
+		t.Fatal("expected ref.path validation error for focus_ax_element")
+	}
+	if _, err := service.PerformAXElementAction(PerformAXElementActionOnRefRequest{Ref: AXElementRefResult{Scope: string(common.AXSearchScopeFocusedWindow), Path: []int{-1}}, Action: "AXPress"}); err == nil {
+		t.Fatal("expected ref.path validation error for perform_ax_element_action")
 	}
 }
 
@@ -504,6 +616,13 @@ func TestGetWindowAccessibilitySnapshotBuildsMarkdownInventory(t *testing.T) {
 	}
 	if len(result.Elements) < 2 || result.Elements[1].ID == "" || result.Elements[1].ScreenRegion == nil {
 		t.Fatalf("unexpected element list: %#v", result.Elements)
+	}
+}
+
+func TestNewServiceRegistersElementInspectionProvider(t *testing.T) {
+	service := NewService()
+	if _, err := service.nut.Registry.ElementInspection(); err != nil {
+		t.Fatalf("expected default service registry to include element inspection provider, got %v", err)
 	}
 }
 

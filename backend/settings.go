@@ -18,6 +18,9 @@ func normalizeAgentSettings(settings AgentSettings) AgentSettings {
 		settings.ReasoningEffort = "medium"
 	}
 	settings.SystemPrompt = strings.TrimSpace(settings.SystemPrompt)
+	if settings.SystemPrompt == "" {
+		settings.SystemPrompt = defaultAgentSystemPrompt
+	}
 	return settings
 }
 

@@ -66,6 +66,9 @@ export const Capability = {
     CapabilityAXFocusedElementAction: "ax.element.action.focused",
     CapabilityAXElementActionAtPoint: "ax.element.action.at_point",
     CapabilityAXElementFocusAtPoint: "ax.element.focus.at_point",
+    CapabilityAXElementSearch: "ax.element.search",
+    CapabilityAXElementFocusMatch: "ax.element.focus.match",
+    CapabilityAXElementActionMatch: "ax.element.action.match",
 };
 
 export class CapabilityStatus {

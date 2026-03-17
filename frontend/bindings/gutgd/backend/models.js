@@ -80,6 +80,127 @@ export class AXActionRequest {
     }
 }
 
+export class AXElementMatchResult {
+    /**
+     * Creates a new AXElementMatchResult instance.
+     * @param {Partial<AXElementMatchResult>} [$$source = {}] - The source object to create the AXElementMatchResult.
+     */
+    constructor($$source = {}) {
+        if (!("ref" in $$source)) {
+            /**
+             * @member
+             * @type {AXElementRefResult}
+             */
+            this["ref"] = (new AXElementRefResult());
+        }
+        if (!("metadata" in $$source)) {
+            /**
+             * @member
+             * @type {UIElementMetadataResult}
+             */
+            this["metadata"] = (new UIElementMetadataResult());
+        }
+        if (!("depth" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["depth"] = 0;
+        }
+        if (!("action_point" in $$source)) {
+            /**
+             * @member
+             * @type {Point}
+             */
+            this["action_point"] = (new Point());
+        }
+        if (!("action_point_known" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["action_point_known"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AXElementMatchResult instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {AXElementMatchResult}
+     */
+    static createFrom($$source = {}) {
+        const $$createField0_0 = $$createType0;
+        const $$createField1_0 = $$createType1;
+        const $$createField3_0 = $$createType2;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("ref" in $$parsedSource) {
+            $$parsedSource["ref"] = $$createField0_0($$parsedSource["ref"]);
+        }
+        if ("metadata" in $$parsedSource) {
+            $$parsedSource["metadata"] = $$createField1_0($$parsedSource["metadata"]);
+        }
+        if ("action_point" in $$parsedSource) {
+            $$parsedSource["action_point"] = $$createField3_0($$parsedSource["action_point"]);
+        }
+        return new AXElementMatchResult(/** @type {Partial<AXElementMatchResult>} */($$parsedSource));
+    }
+}
+
+export class AXElementRefResult {
+    /**
+     * Creates a new AXElementRefResult instance.
+     * @param {Partial<AXElementRefResult>} [$$source = {}] - The source object to create the AXElementRefResult.
+     */
+    constructor($$source = {}) {
+        if (!("scope" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["scope"] = "";
+        }
+        if (!("owner_pid" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["owner_pid"] = 0;
+        }
+        if (!("window_handle" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["window_handle"] = 0;
+        }
+        if (!("path" in $$source)) {
+            /**
+             * @member
+             * @type {number[]}
+             */
+            this["path"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AXElementRefResult instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {AXElementRefResult}
+     */
+    static createFrom($$source = {}) {
+        const $$createField3_0 = $$createType3;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("path" in $$parsedSource) {
+            $$parsedSource["path"] = $$createField3_0($$parsedSource["path"]);
+        }
+        return new AXElementRefResult(/** @type {Partial<AXElementRefResult>} */($$parsedSource));
+    }
+}
+
 export class ActionResult {
     /**
      * Creates a new ActionResult instance.
@@ -187,7 +308,7 @@ export class AgentChatRequest {
      * @returns {AgentChatRequest}
      */
     static createFrom($$source = {}) {
-        const $$createField0_0 = $$createType1;
+        const $$createField0_0 = $$createType5;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("messages" in $$parsedSource) {
             $$parsedSource["messages"] = $$createField0_0($$parsedSource["messages"]);
@@ -247,10 +368,10 @@ export class AgentChatResponse {
      * @returns {AgentChatResponse}
      */
     static createFrom($$source = {}) {
-        const $$createField0_0 = $$createType0;
-        const $$createField1_0 = $$createType3;
-        const $$createField2_0 = $$createType5;
-        const $$createField4_0 = $$createType6;
+        const $$createField0_0 = $$createType4;
+        const $$createField1_0 = $$createType7;
+        const $$createField2_0 = $$createType9;
+        const $$createField4_0 = $$createType10;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("message" in $$parsedSource) {
             $$parsedSource["message"] = $$createField0_0($$parsedSource["message"]);
@@ -571,7 +692,7 @@ export class CaptureRegionRequest {
      * @returns {CaptureRegionRequest}
      */
     static createFrom($$source = {}) {
-        const $$createField1_0 = $$createType7;
+        const $$createField1_0 = $$createType11;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("region" in $$parsedSource) {
             $$parsedSource["region"] = $$createField1_0($$parsedSource["region"]);
@@ -687,11 +808,11 @@ export class CaptureResult {
      * @returns {CaptureResult}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType8;
-        const $$createField3_0 = $$createType9;
-        const $$createField4_0 = $$createType10;
-        const $$createField5_0 = $$createType10;
-        const $$createField6_0 = $$createType9;
+        const $$createField2_0 = $$createType2;
+        const $$createField3_0 = $$createType12;
+        const $$createField4_0 = $$createType13;
+        const $$createField5_0 = $$createType13;
+        const $$createField6_0 = $$createType12;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("offset" in $$parsedSource) {
             $$parsedSource["offset"] = $$createField2_0($$parsedSource["offset"]);
@@ -889,8 +1010,8 @@ export class ColorPointResult {
      * @returns {ColorPointResult}
      */
     static createFrom($$source = {}) {
-        const $$createField0_0 = $$createType8;
-        const $$createField1_0 = $$createType11;
+        const $$createField0_0 = $$createType2;
+        const $$createField1_0 = $$createType14;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("point" in $$parsedSource) {
             $$parsedSource["point"] = $$createField0_0($$parsedSource["point"]);
@@ -967,7 +1088,7 @@ export class ColorQueryRequest {
      * @returns {ColorQueryRequest}
      */
     static createFrom($$source = {}) {
-        const $$createField4_0 = $$createType12;
+        const $$createField4_0 = $$createType15;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("region" in $$parsedSource) {
             $$parsedSource["region"] = $$createField4_0($$parsedSource["region"]);
@@ -1027,8 +1148,8 @@ export class DiagnosticsResponse {
      * @returns {DiagnosticsResponse}
      */
     static createFrom($$source = {}) {
-        const $$createField0_0 = $$createType13;
-        const $$createField1_0 = $$createType15;
+        const $$createField0_0 = $$createType16;
+        const $$createField1_0 = $$createType18;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("report" in $$parsedSource) {
             $$parsedSource["report"] = $$createField0_0($$parsedSource["report"]);
@@ -1079,6 +1200,84 @@ export class FeatureStatus {
     static createFrom($$source = {}) {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new FeatureStatus(/** @type {Partial<FeatureStatus>} */($$parsedSource));
+    }
+}
+
+export class FocusAXElementRequest {
+    /**
+     * Creates a new FocusAXElementRequest instance.
+     * @param {Partial<FocusAXElementRequest>} [$$source = {}] - The source object to create the FocusAXElementRequest.
+     */
+    constructor($$source = {}) {
+        if (!("ref" in $$source)) {
+            /**
+             * @member
+             * @type {AXElementRefResult}
+             */
+            this["ref"] = (new AXElementRefResult());
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FocusAXElementRequest instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {FocusAXElementRequest}
+     */
+    static createFrom($$source = {}) {
+        const $$createField0_0 = $$createType0;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("ref" in $$parsedSource) {
+            $$parsedSource["ref"] = $$createField0_0($$parsedSource["ref"]);
+        }
+        return new FocusAXElementRequest(/** @type {Partial<FocusAXElementRequest>} */($$parsedSource));
+    }
+}
+
+export class FocusAXElementResult {
+    /**
+     * Creates a new FocusAXElementResult instance.
+     * @param {Partial<FocusAXElementResult>} [$$source = {}] - The source object to create the FocusAXElementResult.
+     */
+    constructor($$source = {}) {
+        if (!("ok" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["ok"] = false;
+        }
+        if (!("ref" in $$source)) {
+            /**
+             * @member
+             * @type {AXElementRefResult}
+             */
+            this["ref"] = (new AXElementRefResult());
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FocusAXElementResult instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {FocusAXElementResult}
+     */
+    static createFrom($$source = {}) {
+        const $$createField1_0 = $$createType0;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("ref" in $$parsedSource) {
+            $$parsedSource["ref"] = $$createField1_0($$parsedSource["ref"]);
+        }
+        return new FocusAXElementResult(/** @type {Partial<FocusAXElementResult>} */($$parsedSource));
     }
 }
 
@@ -1182,7 +1381,7 @@ export class FocusedWindowMetadataResult {
      * @returns {FocusedWindowMetadataResult}
      */
     static createFrom($$source = {}) {
-        const $$createField4_0 = $$createType7;
+        const $$createField4_0 = $$createType11;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("region" in $$parsedSource) {
             $$parsedSource["region"] = $$createField4_0($$parsedSource["region"]);
@@ -1291,11 +1490,11 @@ export class ImagePointTranslationResult {
      * @returns {ImagePointTranslationResult}
      */
     static createFrom($$source = {}) {
-        const $$createField1_0 = $$createType8;
-        const $$createField2_0 = $$createType16;
-        const $$createField3_0 = $$createType16;
-        const $$createField4_0 = $$createType8;
-        const $$createField5_0 = $$createType17;
+        const $$createField1_0 = $$createType2;
+        const $$createField2_0 = $$createType19;
+        const $$createField3_0 = $$createType19;
+        const $$createField4_0 = $$createType2;
+        const $$createField5_0 = $$createType20;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("requested_delivered_point" in $$parsedSource) {
             $$parsedSource["requested_delivered_point"] = $$createField1_0($$parsedSource["requested_delivered_point"]);
@@ -1346,7 +1545,7 @@ export class KeyboardKeysRequest {
      * @returns {KeyboardKeysRequest}
      */
     static createFrom($$source = {}) {
-        const $$createField0_0 = $$createType18;
+        const $$createField0_0 = $$createType21;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("keys" in $$parsedSource) {
             $$parsedSource["keys"] = $$createField0_0($$parsedSource["keys"]);
@@ -1656,6 +1855,98 @@ export class MouseScrollRequest {
     }
 }
 
+export class PerformAXElementActionOnRefRequest {
+    /**
+     * Creates a new PerformAXElementActionOnRefRequest instance.
+     * @param {Partial<PerformAXElementActionOnRefRequest>} [$$source = {}] - The source object to create the PerformAXElementActionOnRefRequest.
+     */
+    constructor($$source = {}) {
+        if (!("ref" in $$source)) {
+            /**
+             * @member
+             * @type {AXElementRefResult}
+             */
+            this["ref"] = (new AXElementRefResult());
+        }
+        if (!("action" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["action"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PerformAXElementActionOnRefRequest instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {PerformAXElementActionOnRefRequest}
+     */
+    static createFrom($$source = {}) {
+        const $$createField0_0 = $$createType0;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("ref" in $$parsedSource) {
+            $$parsedSource["ref"] = $$createField0_0($$parsedSource["ref"]);
+        }
+        return new PerformAXElementActionOnRefRequest(/** @type {Partial<PerformAXElementActionOnRefRequest>} */($$parsedSource));
+    }
+}
+
+export class PerformAXElementActionResult {
+    /**
+     * Creates a new PerformAXElementActionResult instance.
+     * @param {Partial<PerformAXElementActionResult>} [$$source = {}] - The source object to create the PerformAXElementActionResult.
+     */
+    constructor($$source = {}) {
+        if (!("ok" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["ok"] = false;
+        }
+        if (!("ref" in $$source)) {
+            /**
+             * @member
+             * @type {AXElementRefResult}
+             */
+            this["ref"] = (new AXElementRefResult());
+        }
+        if (!("action" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["action"] = "";
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PerformAXElementActionResult instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {PerformAXElementActionResult}
+     */
+    static createFrom($$source = {}) {
+        const $$createField1_0 = $$createType0;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("ref" in $$parsedSource) {
+            $$parsedSource["ref"] = $$createField1_0($$parsedSource["ref"]);
+        }
+        return new PerformAXElementActionResult(/** @type {Partial<PerformAXElementActionResult>} */($$parsedSource));
+    }
+}
+
 export class PermissionReadinessResult {
     /**
      * Creates a new PermissionReadinessResult instance.
@@ -1693,8 +1984,8 @@ export class PermissionReadinessResult {
      * @returns {PermissionReadinessResult}
      */
     static createFrom($$source = {}) {
-        const $$createField0_0 = $$createType19;
-        const $$createField1_0 = $$createType15;
+        const $$createField0_0 = $$createType22;
+        const $$createField1_0 = $$createType18;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("permissions" in $$parsedSource) {
             $$parsedSource["permissions"] = $$createField0_0($$parsedSource["permissions"]);
@@ -1736,8 +2027,8 @@ export class PermissionSnapshotResult {
      * @returns {PermissionSnapshotResult}
      */
     static createFrom($$source = {}) {
-        const $$createField0_0 = $$createType20;
-        const $$createField1_0 = $$createType20;
+        const $$createField0_0 = $$createType23;
+        const $$createField1_0 = $$createType23;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("accessibility" in $$parsedSource) {
             $$parsedSource["accessibility"] = $$createField0_0($$parsedSource["accessibility"]);
@@ -1980,6 +2271,154 @@ export class ScreenSizeResult {
     }
 }
 
+export class SearchAXElementsRequest {
+    /**
+     * Creates a new SearchAXElementsRequest instance.
+     * @param {Partial<SearchAXElementsRequest>} [$$source = {}] - The source object to create the SearchAXElementsRequest.
+     */
+    constructor($$source = {}) {
+        if (!("scope" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["scope"] = "";
+        }
+        if (!("role" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["role"] = "";
+        }
+        if (!("subrole" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["subrole"] = "";
+        }
+        if (!("title_contains" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["title_contains"] = "";
+        }
+        if (!("value_contains" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["value_contains"] = "";
+        }
+        if (!("description_contains" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["description_contains"] = "";
+        }
+        if (!("action" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["action"] = "";
+        }
+        if (!("enabled" in $$source)) {
+            /**
+             * @member
+             * @type {boolean | null}
+             */
+            this["enabled"] = null;
+        }
+        if (!("focused" in $$source)) {
+            /**
+             * @member
+             * @type {boolean | null}
+             */
+            this["focused"] = null;
+        }
+        if (!("limit" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["limit"] = 0;
+        }
+        if (!("max_depth" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["max_depth"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SearchAXElementsRequest instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {SearchAXElementsRequest}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new SearchAXElementsRequest(/** @type {Partial<SearchAXElementsRequest>} */($$parsedSource));
+    }
+}
+
+export class SearchAXElementsResult {
+    /**
+     * Creates a new SearchAXElementsResult instance.
+     * @param {Partial<SearchAXElementsResult>} [$$source = {}] - The source object to create the SearchAXElementsResult.
+     */
+    constructor($$source = {}) {
+        if (!("query" in $$source)) {
+            /**
+             * @member
+             * @type {SearchAXElementsRequest}
+             */
+            this["query"] = (new SearchAXElementsRequest());
+        }
+        if (!("matches" in $$source)) {
+            /**
+             * @member
+             * @type {AXElementMatchResult[]}
+             */
+            this["matches"] = [];
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SearchAXElementsResult instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {SearchAXElementsResult}
+     */
+    static createFrom($$source = {}) {
+        const $$createField0_0 = $$createType24;
+        const $$createField1_0 = $$createType26;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("query" in $$parsedSource) {
+            $$parsedSource["query"] = $$createField0_0($$parsedSource["query"]);
+        }
+        if ("matches" in $$parsedSource) {
+            $$parsedSource["matches"] = $$createField1_0($$parsedSource["matches"]);
+        }
+        return new SearchAXElementsResult(/** @type {Partial<SearchAXElementsResult>} */($$parsedSource));
+    }
+}
+
 export class Size {
     /**
      * Creates a new Size instance.
@@ -2101,8 +2540,8 @@ export class UIElementMetadataResult {
      * @returns {UIElementMetadataResult}
      */
     static createFrom($$source = {}) {
-        const $$createField7_0 = $$createType7;
-        const $$createField9_0 = $$createType18;
+        const $$createField7_0 = $$createType11;
+        const $$createField9_0 = $$createType21;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("frame" in $$parsedSource) {
             $$parsedSource["frame"] = $$createField7_0($$parsedSource["frame"]);
@@ -2111,6 +2550,352 @@ export class UIElementMetadataResult {
             $$parsedSource["actions"] = $$createField9_0($$parsedSource["actions"]);
         }
         return new UIElementMetadataResult(/** @type {Partial<UIElementMetadataResult>} */($$parsedSource));
+    }
+}
+
+export class WindowAccessibilityElement {
+    /**
+     * Creates a new WindowAccessibilityElement instance.
+     * @param {Partial<WindowAccessibilityElement>} [$$source = {}] - The source object to create the WindowAccessibilityElement.
+     */
+    constructor($$source = {}) {
+        if (!("id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["id"] = "";
+        }
+        if (!("path" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["path"] = "";
+        }
+        if (!("depth" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["depth"] = 0;
+        }
+        if (!("type" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["type"] = "";
+        }
+        if (!("role" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["role"] = "";
+        }
+        if (!("subrole" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["subrole"] = "";
+        }
+        if (!("title" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["title"] = "";
+        }
+        if (!("value" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["value"] = "";
+        }
+        if (!("selected_text" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["selected_text"] = "";
+        }
+        if (!("enabled_known" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["enabled_known"] = false;
+        }
+        if (!("enabled" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["enabled"] = false;
+        }
+        if (!("focused_known" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["focused_known"] = false;
+        }
+        if (!("focused" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["focused"] = false;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {Region | null | undefined}
+             */
+            this["screen_region"] = undefined;
+        }
+        if (!("available_actions" in $$source)) {
+            /**
+             * @member
+             * @type {string[]}
+             */
+            this["available_actions"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new WindowAccessibilityElement instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {WindowAccessibilityElement}
+     */
+    static createFrom($$source = {}) {
+        const $$createField13_0 = $$createType15;
+        const $$createField14_0 = $$createType21;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("screen_region" in $$parsedSource) {
+            $$parsedSource["screen_region"] = $$createField13_0($$parsedSource["screen_region"]);
+        }
+        if ("available_actions" in $$parsedSource) {
+            $$parsedSource["available_actions"] = $$createField14_0($$parsedSource["available_actions"]);
+        }
+        return new WindowAccessibilityElement(/** @type {Partial<WindowAccessibilityElement>} */($$parsedSource));
+    }
+}
+
+export class WindowAccessibilityElementActionRequest {
+    /**
+     * Creates a new WindowAccessibilityElementActionRequest instance.
+     * @param {Partial<WindowAccessibilityElementActionRequest>} [$$source = {}] - The source object to create the WindowAccessibilityElementActionRequest.
+     */
+    constructor($$source = {}) {
+        if (!("snapshot_id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["snapshot_id"] = "";
+        }
+        if (!("element_id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["element_id"] = "";
+        }
+        if (!("action" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["action"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new WindowAccessibilityElementActionRequest instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {WindowAccessibilityElementActionRequest}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new WindowAccessibilityElementActionRequest(/** @type {Partial<WindowAccessibilityElementActionRequest>} */($$parsedSource));
+    }
+}
+
+export class WindowAccessibilityElementActionResult {
+    /**
+     * Creates a new WindowAccessibilityElementActionResult instance.
+     * @param {Partial<WindowAccessibilityElementActionResult>} [$$source = {}] - The source object to create the WindowAccessibilityElementActionResult.
+     */
+    constructor($$source = {}) {
+        if (!("snapshot_id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["snapshot_id"] = "";
+        }
+        if (!("element_id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["element_id"] = "";
+        }
+        if (!("action" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["action"] = "";
+        }
+        if (!("screen_point" in $$source)) {
+            /**
+             * @member
+             * @type {Point}
+             */
+            this["screen_point"] = (new Point());
+        }
+        if (!("result" in $$source)) {
+            /**
+             * @member
+             * @type {ActionResult}
+             */
+            this["result"] = (new ActionResult());
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new WindowAccessibilityElementActionResult instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {WindowAccessibilityElementActionResult}
+     */
+    static createFrom($$source = {}) {
+        const $$createField3_0 = $$createType2;
+        const $$createField4_0 = $$createType27;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("screen_point" in $$parsedSource) {
+            $$parsedSource["screen_point"] = $$createField3_0($$parsedSource["screen_point"]);
+        }
+        if ("result" in $$parsedSource) {
+            $$parsedSource["result"] = $$createField4_0($$parsedSource["result"]);
+        }
+        return new WindowAccessibilityElementActionResult(/** @type {Partial<WindowAccessibilityElementActionResult>} */($$parsedSource));
+    }
+}
+
+export class WindowAccessibilitySnapshotRequest {
+    /**
+     * Creates a new WindowAccessibilitySnapshotRequest instance.
+     * @param {Partial<WindowAccessibilitySnapshotRequest>} [$$source = {}] - The source object to create the WindowAccessibilitySnapshotRequest.
+     */
+    constructor($$source = {}) {
+        if (!("handle" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["handle"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new WindowAccessibilitySnapshotRequest instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {WindowAccessibilitySnapshotRequest}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new WindowAccessibilitySnapshotRequest(/** @type {Partial<WindowAccessibilitySnapshotRequest>} */($$parsedSource));
+    }
+}
+
+export class WindowAccessibilitySnapshotResult {
+    /**
+     * Creates a new WindowAccessibilitySnapshotResult instance.
+     * @param {Partial<WindowAccessibilitySnapshotResult>} [$$source = {}] - The source object to create the WindowAccessibilitySnapshotResult.
+     */
+    constructor($$source = {}) {
+        if (!("snapshot_id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["snapshot_id"] = "";
+        }
+        if (!("window" in $$source)) {
+            /**
+             * @member
+             * @type {WindowSummary}
+             */
+            this["window"] = (new WindowSummary());
+        }
+        if (!("element_count" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["element_count"] = 0;
+        }
+        if (!("elements" in $$source)) {
+            /**
+             * @member
+             * @type {WindowAccessibilityElement[]}
+             */
+            this["elements"] = [];
+        }
+        if (!("markdown" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["markdown"] = "";
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new WindowAccessibilitySnapshotResult instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {WindowAccessibilitySnapshotResult}
+     */
+    static createFrom($$source = {}) {
+        const $$createField1_0 = $$createType28;
+        const $$createField3_0 = $$createType30;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("window" in $$parsedSource) {
+            $$parsedSource["window"] = $$createField1_0($$parsedSource["window"]);
+        }
+        if ("elements" in $$parsedSource) {
+            $$parsedSource["elements"] = $$createField3_0($$parsedSource["elements"]);
+        }
+        return new WindowAccessibilitySnapshotResult(/** @type {Partial<WindowAccessibilitySnapshotResult>} */($$parsedSource));
     }
 }
 
@@ -2312,7 +3097,7 @@ export class WindowSummary {
      * @returns {WindowSummary}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType7;
+        const $$createField2_0 = $$createType11;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("region" in $$parsedSource) {
             $$parsedSource["region"] = $$createField2_0($$parsedSource["region"]);
@@ -2322,24 +3107,34 @@ export class WindowSummary {
 }
 
 // Private type creation functions
-const $$createType0 = AgentChatMessage.createFrom;
-const $$createType1 = $Create.Array($$createType0);
-const $$createType2 = AgentToolEvent.createFrom;
-const $$createType3 = $Create.Array($$createType2);
-const $$createType4 = AgentTranscriptItem.createFrom;
+const $$createType0 = AXElementRefResult.createFrom;
+const $$createType1 = UIElementMetadataResult.createFrom;
+const $$createType2 = Point.createFrom;
+const $$createType3 = $Create.Array($Create.Any);
+const $$createType4 = AgentChatMessage.createFrom;
 const $$createType5 = $Create.Array($$createType4);
-const $$createType6 = AgentUsage.createFrom;
-const $$createType7 = Region.createFrom;
-const $$createType8 = Point.createFrom;
-const $$createType9 = Scale.createFrom;
-const $$createType10 = Size.createFrom;
-const $$createType11 = Color.createFrom;
-const $$createType12 = $Create.Nullable($$createType7);
-const $$createType13 = guttesting$0.EnvironmentReport.createFrom;
-const $$createType14 = FeatureStatus.createFrom;
-const $$createType15 = $Create.Array($$createType14);
-const $$createType16 = ImagePoint.createFrom;
-const $$createType17 = CaptureResult.createFrom;
-const $$createType18 = $Create.Array($Create.Any);
-const $$createType19 = PermissionSnapshotResult.createFrom;
-const $$createType20 = PermissionStatusResult.createFrom;
+const $$createType6 = AgentToolEvent.createFrom;
+const $$createType7 = $Create.Array($$createType6);
+const $$createType8 = AgentTranscriptItem.createFrom;
+const $$createType9 = $Create.Array($$createType8);
+const $$createType10 = AgentUsage.createFrom;
+const $$createType11 = Region.createFrom;
+const $$createType12 = Scale.createFrom;
+const $$createType13 = Size.createFrom;
+const $$createType14 = Color.createFrom;
+const $$createType15 = $Create.Nullable($$createType11);
+const $$createType16 = guttesting$0.EnvironmentReport.createFrom;
+const $$createType17 = FeatureStatus.createFrom;
+const $$createType18 = $Create.Array($$createType17);
+const $$createType19 = ImagePoint.createFrom;
+const $$createType20 = CaptureResult.createFrom;
+const $$createType21 = $Create.Array($Create.Any);
+const $$createType22 = PermissionSnapshotResult.createFrom;
+const $$createType23 = PermissionStatusResult.createFrom;
+const $$createType24 = SearchAXElementsRequest.createFrom;
+const $$createType25 = AXElementMatchResult.createFrom;
+const $$createType26 = $Create.Array($$createType25);
+const $$createType27 = ActionResult.createFrom;
+const $$createType28 = WindowSummary.createFrom;
+const $$createType29 = WindowAccessibilityElement.createFrom;
+const $$createType30 = $Create.Array($$createType29);

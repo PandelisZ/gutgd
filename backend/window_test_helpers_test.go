@@ -62,21 +62,29 @@ type fakeBackendAccessibilityProvider struct {
 	focusedWindow                  common.FocusedWindowMetadata
 	focusedElement                 common.UIElementMetadata
 	elementAtPoint                 common.UIElementMetadata
+	searchAXElementsMatches        []common.AXElementMatch
 	capabilities                   common.CapabilitySet
 	lastPoint                      shared.Point
 	lastFocusedElementAction       common.AXAction
 	lastElementActionAtPoint       shared.Point
 	lastElementActionAtPointAction common.AXAction
 	lastFocusElementAtPoint        shared.Point
+	lastSearchAXQuery              common.AXElementSearchQuery
+	lastFocusAXRef                 common.AXElementRef
+	lastPerformAXRef               common.AXElementRef
+	lastPerformAXAction            common.AXAction
 	raiseFocusedWindowCalls        int
 	permissionErr                  error
 	focusedWindowErr               error
 	focusedElementErr              error
 	elementAtPointErr              error
+	searchAXElementsErr            error
 	raiseFocusedWindowErr          error
 	performFocusedElementActionErr error
 	performElementActionAtPointErr error
 	focusElementAtPointErr         error
+	focusAXElementErr              error
+	performAXElementActionErr      error
 }
 
 type fakeBackendElementInspectionProvider struct {
@@ -158,6 +166,25 @@ func (f *fakeBackendAccessibilityProvider) PerformElementActionAtPoint(_ context
 func (f *fakeBackendAccessibilityProvider) FocusElementAtPoint(_ context.Context, point shared.Point) error {
 	f.lastFocusElementAtPoint = point
 	return f.focusElementAtPointErr
+}
+
+func (f *fakeBackendAccessibilityProvider) SearchAXElements(_ context.Context, query common.AXElementSearchQuery) ([]common.AXElementMatch, error) {
+	f.lastSearchAXQuery = query
+	if f.searchAXElementsErr != nil {
+		return nil, f.searchAXElementsErr
+	}
+	return append([]common.AXElementMatch(nil), f.searchAXElementsMatches...), nil
+}
+
+func (f *fakeBackendAccessibilityProvider) FocusAXElement(_ context.Context, ref common.AXElementRef) error {
+	f.lastFocusAXRef = ref
+	return f.focusAXElementErr
+}
+
+func (f *fakeBackendAccessibilityProvider) PerformAXElementAction(_ context.Context, ref common.AXElementRef, action common.AXAction) error {
+	f.lastPerformAXRef = ref
+	f.lastPerformAXAction = action
+	return f.performAXElementActionErr
 }
 
 func (f *fakeBackendAccessibilityProvider) Capabilities() common.CapabilitySet {

@@ -29,8 +29,8 @@ func TestNormalizeAgentSettingsDefaultsModel(t *testing.T) {
 	if settings.ReasoningEffort != "medium" {
 		t.Fatalf("expected default reasoning effort %q, got %q", "medium", settings.ReasoningEffort)
 	}
-	if settings.SystemPrompt != "" {
-		t.Fatalf("expected system prompt to remain empty when not provided, got %q", settings.SystemPrompt)
+	if settings.SystemPrompt != defaultAgentSystemPrompt {
+		t.Fatalf("expected default system prompt to be populated, got %q", settings.SystemPrompt)
 	}
 }
 
@@ -216,6 +216,9 @@ func TestAgentToolsExposeAccessibilityMetadataTools(t *testing.T) {
 
 	for _, name := range []string{
 		"get_permission_readiness",
+		"search_ax_elements",
+		"focus_ax_element",
+		"perform_ax_element_action",
 		"get_focused_window_metadata",
 		"get_window_accessibility_snapshot",
 		"act_on_window_accessibility_element",
@@ -228,6 +231,25 @@ func TestAgentToolsExposeAccessibilityMetadataTools(t *testing.T) {
 	} {
 		if !hasAgentTool(tools, name) {
 			t.Fatalf("expected %s to be exposed", name)
+		}
+	}
+
+	for _, test := range []struct {
+		name    string
+		needles []string
+	}{
+		{name: "search_ax_elements", needles: []string{"inspect-then-act", "scope", "focus_ax_element", "perform_ax_element_action", "permission_blocked"}},
+		{name: "focus_ax_element", needles: []string{"search_ax_elements", "matches", "ref", "permission_blocked"}},
+		{name: "perform_ax_element_action", needles: []string{"search_ax_elements", "ref", "AX action", "permission_blocked"}},
+	} {
+		tool, ok := findAgentTool(tools, test.name)
+		if !ok {
+			t.Fatalf("expected %s to be exposed", test.name)
+		}
+		for _, needle := range test.needles {
+			if !strings.Contains(tool.Description, needle) {
+				t.Fatalf("expected %s description to contain %q, got %q", test.name, needle, tool.Description)
+			}
 		}
 	}
 }
@@ -425,6 +447,10 @@ func TestAgentDeveloperPromptForDarwinMentionsSafeFallbacks(t *testing.T) {
 		"get_focused_window_metadata",
 		"get_focused_element_metadata",
 		"get_element_at_point_metadata",
+		"search_ax_elements",
+		"focus_ax_element",
+		"perform_ax_element_action",
+		"focused_window or frontmost_application scope",
 		"permission_blocked",
 		"Accessibility permission is required",
 		"tap_keys, press_keys, release_keys, and highlight_region are intentionally unavailable",

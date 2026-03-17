@@ -232,26 +232,41 @@ function messageTone(item) {
 
 function renderTranscriptItem(item) {
   if (item.kind === 'tool_call') {
+    const details = summarizeToolCall(item)
+    const raw = formatPayload(parseStructuredValue(item.arguments, {}))
     return (
       <>
         <header>
-          <span>tool</span>
+          <span>Tool</span>
           <code>{formatToolName(item.name)}</code>
         </header>
-        {renderPayload('args', item.arguments, {})}
+        {details.message ? <p>{details.message}</p> : null}
+        {details.summary.length ? (
+          <ul className="gutgd-chatBulletList">
+            {details.summary.map((line) => <li key={line}>{line}</li>)}
+          </ul>
+        ) : null}
+        {renderRawPayload('Show raw request', raw)}
       </>
     )
   }
 
   if (item.kind === 'tool_output') {
+    const details = summarizeToolOutput(item)
+    const raw = formatPayload(parseStructuredValue(item.output, item.output || ''))
     return (
       <>
         <header>
-          <span>result</span>
+          <span>Result</span>
           <code>{formatToolName(item.name)}</code>
         </header>
-        {item.error ? <p>{item.error}</p> : null}
-        {renderPayload('output', item.output, item.output || '')}
+        <p>{item.error || details.message || 'Completed.'}</p>
+        {details.summary.length ? (
+          <ul className="gutgd-chatBulletList">
+            {details.summary.map((line) => <li key={line}>{line}</li>)}
+          </ul>
+        ) : null}
+        {renderRawPayload('Show raw result', raw)}
       </>
     )
   }
@@ -279,25 +294,113 @@ function formatToolName(value) {
   return (value || '').replaceAll('_', ' ')
 }
 
-function renderPayload(label, value, fallback) {
-  const text = formatPayload(parseStructuredValue(value, fallback))
+function renderRawPayload(label, text) {
   if (!text) {
     return null
   }
-  if (text.length <= 120 && !text.includes('\n')) {
-    return (
-      <div className="gutgd-chatMetaRow">
-        <span className="gutgd-chatMetaLabel">{label}</span>
-        <code className="gutgd-chatInlinePayload">{text}</code>
-      </div>
-    )
-  }
   return (
-    <div className="gutgd-chatMetaBlock">
-      <span className="gutgd-chatMetaLabel">{label}</span>
+    <details className="gutgd-chatRawDetails">
+      <summary>{label}</summary>
       <pre className="gutgd-output gutgd-outputCompact gutgd-chatPayload">{text}</pre>
-    </div>
+    </details>
   )
+}
+
+function summarizeToolCall(item) {
+  const args = parseStructuredValue(item.arguments, {})
+  if (args == null || typeof args !== 'object' || Array.isArray(args)) {
+    return {
+      message: '',
+      summary: []
+    }
+  }
+
+  const entries = Object.entries(args)
+  return {
+    message: entries.length ? `Calling ${formatToolName(item.name)}.` : '',
+    summary: entries.map(([key, value]) => `${formatFieldLabel(key)}: ${summarizeValue(value)}`)
+  }
+}
+
+function summarizeToolOutput(item) {
+  const output = parseStructuredValue(item.output, item.output || '')
+  if (output == null || typeof output !== 'object' || Array.isArray(output)) {
+    return {
+      message: typeof output === 'string' ? output : '',
+      summary: []
+    }
+  }
+
+  const preferredMessage = firstNonEmptyString(
+    output.message,
+    output.analysis,
+    output.markdown,
+    output.path ? `Saved at ${output.path}.` : ''
+  )
+
+  const summary = []
+  for (const [key, value] of Object.entries(output)) {
+    if (key === 'message' || key === 'analysis' || key === 'markdown') {
+      continue
+    }
+    if (value == null || value === '') {
+      continue
+    }
+    if (typeof value === 'object') {
+      summary.push(`${formatFieldLabel(key)}: ${compactJson(value)}`)
+      continue
+    }
+    summary.push(`${formatFieldLabel(key)}: ${summarizeValue(value)}`)
+  }
+
+  return {
+    message: preferredMessage,
+    summary
+  }
+}
+
+function firstNonEmptyString(...values) {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim()
+    }
+  }
+  return ''
+}
+
+function summarizeValue(value) {
+  if (typeof value === 'string') {
+    const text = value.trim().replaceAll('\n', ' ')
+    if (text.length <= 120) {
+      return text
+    }
+    return `${text.slice(0, 117)}...`
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value)
+  }
+  if (Array.isArray(value)) {
+    return compactJson(value)
+  }
+  if (value && typeof value === 'object') {
+    return compactJson(value)
+  }
+  return String(value)
+}
+
+function compactJson(value) {
+  const text = JSON.stringify(value)
+  if (!text) {
+    return ''
+  }
+  if (text.length <= 120) {
+    return text
+  }
+  return `${text.slice(0, 117)}...`
+}
+
+function formatFieldLabel(value) {
+  return (value || '').replaceAll('_', ' ')
 }
 
 function normalizeTimelineOrder(items) {

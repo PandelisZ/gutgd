@@ -11,12 +11,22 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 import * as $models from "./models.js";
 
 /**
+ * @param {$models.WindowAccessibilityElementActionRequest} req
+ * @returns {$CancellablePromise<$models.WindowAccessibilityElementActionResult>}
+ */
+export function ActOnWindowAccessibilityElement(req) {
+    return $Call.ByID(369704685, req).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType0($result);
+    }));
+}
+
+/**
  * @param {$models.ColorQueryRequest} req
  * @returns {$CancellablePromise<$models.ActionResult>}
  */
 export function AssertColorVisible(req) {
     return $Call.ByID(134871021, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
+        return $$createType1($result);
     }));
 }
 
@@ -26,7 +36,7 @@ export function AssertColorVisible(req) {
  */
 export function AssertWindowVisible(req) {
     return $Call.ByID(1209703428, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
+        return $$createType1($result);
     }));
 }
 
@@ -36,7 +46,7 @@ export function AssertWindowVisible(req) {
  */
 export function CaptureRegion(req) {
     return $Call.ByID(3114183722, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType1($result);
+        return $$createType2($result);
     }));
 }
 
@@ -46,7 +56,7 @@ export function CaptureRegion(req) {
  */
 export function CaptureScreen(req) {
     return $Call.ByID(3981771602, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType1($result);
+        return $$createType2($result);
     }));
 }
 
@@ -56,7 +66,7 @@ export function CaptureScreen(req) {
  */
 export function ChatWithAgent(req) {
     return $Call.ByID(3875425523, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType2($result);
+        return $$createType3($result);
     }));
 }
 
@@ -66,7 +76,7 @@ export function ChatWithAgent(req) {
  */
 export function ClickMouse(req) {
     return $Call.ByID(1763981735, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
+        return $$createType1($result);
     }));
 }
 
@@ -75,7 +85,7 @@ export function ClickMouse(req) {
  */
 export function ClipboardClear() {
     return $Call.ByID(4221389843).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
+        return $$createType1($result);
     }));
 }
 
@@ -85,7 +95,7 @@ export function ClipboardClear() {
  */
 export function ClipboardCopy(req) {
     return $Call.ByID(1128895767, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
+        return $$createType1($result);
     }));
 }
 
@@ -94,7 +104,7 @@ export function ClipboardCopy(req) {
  */
 export function ClipboardHasText() {
     return $Call.ByID(3819920489).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType3($result);
+        return $$createType4($result);
     }));
 }
 
@@ -103,7 +113,7 @@ export function ClipboardHasText() {
  */
 export function ClipboardPaste() {
     return $Call.ByID(1770450861).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType4($result);
+        return $$createType5($result);
     }));
 }
 
@@ -113,7 +123,7 @@ export function ClipboardPaste() {
  */
 export function ColorAt(req) {
     return $Call.ByID(4272332838, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType5($result);
+        return $$createType6($result);
     }));
 }
 
@@ -123,7 +133,7 @@ export function ColorAt(req) {
  */
 export function DoubleClickMouse(req) {
     return $Call.ByID(2629668814, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
+        return $$createType1($result);
     }));
 }
 
@@ -133,7 +143,7 @@ export function DoubleClickMouse(req) {
  */
 export function DragMouse(req) {
     return $Call.ByID(2879309765, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
+        return $$createType1($result);
     }));
 }
 
@@ -143,7 +153,7 @@ export function DragMouse(req) {
  */
 export function FindColor(req) {
     return $Call.ByID(609851502, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType6($result);
+        return $$createType7($result);
     }));
 }
 
@@ -153,7 +163,7 @@ export function FindColor(req) {
  */
 export function FindWindowByHandle(req) {
     return $Call.ByID(3957322820, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType7($result);
+        return $$createType8($result);
     }));
 }
 
@@ -163,7 +173,17 @@ export function FindWindowByHandle(req) {
  */
 export function FindWindowByTitle(req) {
     return $Call.ByID(1623829132, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType7($result);
+        return $$createType8($result);
+    }));
+}
+
+/**
+ * @param {$models.FocusAXElementRequest} req
+ * @returns {$CancellablePromise<$models.FocusAXElementResult>}
+ */
+export function FocusAXElement(req) {
+    return $Call.ByID(1892301927, req).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType9($result);
     }));
 }
 
@@ -173,7 +193,7 @@ export function FindWindowByTitle(req) {
  */
 export function FocusElementAtPoint(req) {
     return $Call.ByID(524922277, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
+        return $$createType1($result);
     }));
 }
 
@@ -183,7 +203,7 @@ export function FocusElementAtPoint(req) {
  */
 export function FocusWindow(req) {
     return $Call.ByID(2102876104, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
+        return $$createType1($result);
     }));
 }
 
@@ -192,7 +212,7 @@ export function FocusWindow(req) {
  */
 export function GetActiveWindow() {
     return $Call.ByID(2909843870).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType7($result);
+        return $$createType8($result);
     }));
 }
 
@@ -201,7 +221,7 @@ export function GetActiveWindow() {
  */
 export function GetAgentSettings() {
     return $Call.ByID(2406893348).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType8($result);
+        return $$createType10($result);
     }));
 }
 
@@ -211,7 +231,7 @@ export function GetAgentSettings() {
  */
 export function GetDiagnostics(mutable) {
     return $Call.ByID(4177681436, mutable).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType9($result);
+        return $$createType11($result);
     }));
 }
 
@@ -221,7 +241,7 @@ export function GetDiagnostics(mutable) {
  */
 export function GetElementAtPointMetadata(req) {
     return $Call.ByID(100587620, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType10($result);
+        return $$createType12($result);
     }));
 }
 
@@ -230,7 +250,7 @@ export function GetElementAtPointMetadata(req) {
  */
 export function GetFocusedElementMetadata() {
     return $Call.ByID(2523385230).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType10($result);
+        return $$createType12($result);
     }));
 }
 
@@ -239,7 +259,7 @@ export function GetFocusedElementMetadata() {
  */
 export function GetFocusedWindowMetadata() {
     return $Call.ByID(1139212420).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType11($result);
+        return $$createType13($result);
     }));
 }
 
@@ -248,7 +268,7 @@ export function GetFocusedWindowMetadata() {
  */
 export function GetMousePosition() {
     return $Call.ByID(3277626448).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType6($result);
+        return $$createType7($result);
     }));
 }
 
@@ -257,7 +277,7 @@ export function GetMousePosition() {
  */
 export function GetPermissionReadiness() {
     return $Call.ByID(37559861).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType12($result);
+        return $$createType14($result);
     }));
 }
 
@@ -266,7 +286,17 @@ export function GetPermissionReadiness() {
  */
 export function GetScreenSize() {
     return $Call.ByID(2197467173).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType13($result);
+        return $$createType15($result);
+    }));
+}
+
+/**
+ * @param {$models.WindowAccessibilitySnapshotRequest} req
+ * @returns {$CancellablePromise<$models.WindowAccessibilitySnapshotResult>}
+ */
+export function GetWindowAccessibilitySnapshot(req) {
+    return $Call.ByID(46085728, req).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType16($result);
     }));
 }
 
@@ -276,7 +306,7 @@ export function GetScreenSize() {
  */
 export function HighlightRegion(req) {
     return $Call.ByID(4261775032, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
+        return $$createType1($result);
     }));
 }
 
@@ -285,7 +315,7 @@ export function HighlightRegion(req) {
  */
 export function ListAgentModels() {
     return $Call.ByID(540252835).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType15($result);
+        return $$createType18($result);
     }));
 }
 
@@ -294,7 +324,7 @@ export function ListAgentModels() {
  */
 export function ListWindows() {
     return $Call.ByID(573994497).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType16($result);
+        return $$createType19($result);
     }));
 }
 
@@ -304,7 +334,7 @@ export function ListWindows() {
  */
 export function MinimizeWindow(req) {
     return $Call.ByID(764668720, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
+        return $$createType1($result);
     }));
 }
 
@@ -314,7 +344,7 @@ export function MinimizeWindow(req) {
  */
 export function MouseDown(req) {
     return $Call.ByID(2906832043, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
+        return $$createType1($result);
     }));
 }
 
@@ -324,7 +354,7 @@ export function MouseDown(req) {
  */
 export function MouseUp(req) {
     return $Call.ByID(26956106, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
+        return $$createType1($result);
     }));
 }
 
@@ -334,7 +364,7 @@ export function MouseUp(req) {
  */
 export function MoveMouseLine(req) {
     return $Call.ByID(1284675706, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
+        return $$createType1($result);
     }));
 }
 
@@ -344,7 +374,17 @@ export function MoveMouseLine(req) {
  */
 export function MoveWindow(req) {
     return $Call.ByID(335297289, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
+        return $$createType1($result);
+    }));
+}
+
+/**
+ * @param {$models.PerformAXElementActionOnRefRequest} req
+ * @returns {$CancellablePromise<$models.PerformAXElementActionResult>}
+ */
+export function PerformAXElementAction(req) {
+    return $Call.ByID(55535706, req).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType20($result);
     }));
 }
 
@@ -354,7 +394,7 @@ export function MoveWindow(req) {
  */
 export function PerformElementActionAtPoint(req) {
     return $Call.ByID(885567762, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
+        return $$createType1($result);
     }));
 }
 
@@ -364,7 +404,7 @@ export function PerformElementActionAtPoint(req) {
  */
 export function PerformFocusedElementAction(req) {
     return $Call.ByID(1823793388, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
+        return $$createType1($result);
     }));
 }
 
@@ -374,7 +414,7 @@ export function PerformFocusedElementAction(req) {
  */
 export function PressKeys(req) {
     return $Call.ByID(2545419963, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
+        return $$createType1($result);
     }));
 }
 
@@ -384,7 +424,7 @@ export function PressKeys(req) {
  */
 export function PressSpecialKey(req) {
     return $Call.ByID(3576986753, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
+        return $$createType1($result);
     }));
 }
 
@@ -393,7 +433,7 @@ export function PressSpecialKey(req) {
  */
 export function RaiseFocusedWindow() {
     return $Call.ByID(71988429).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
+        return $$createType1($result);
     }));
 }
 
@@ -403,7 +443,7 @@ export function RaiseFocusedWindow() {
  */
 export function ReleaseKeys(req) {
     return $Call.ByID(2285701249, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
+        return $$createType1($result);
     }));
 }
 
@@ -413,7 +453,7 @@ export function ReleaseKeys(req) {
  */
 export function ResizeWindow(req) {
     return $Call.ByID(3423318232, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
+        return $$createType1($result);
     }));
 }
 
@@ -423,7 +463,7 @@ export function ResizeWindow(req) {
  */
 export function RestoreWindow(req) {
     return $Call.ByID(1589709578, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
+        return $$createType1($result);
     }));
 }
 
@@ -433,7 +473,7 @@ export function RestoreWindow(req) {
  */
 export function SaveAgentSettings(settings) {
     return $Call.ByID(2767597799, settings).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType8($result);
+        return $$createType10($result);
     }));
 }
 
@@ -443,7 +483,17 @@ export function SaveAgentSettings(settings) {
  */
 export function ScrollMouse(req) {
     return $Call.ByID(2159489636, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
+        return $$createType1($result);
+    }));
+}
+
+/**
+ * @param {$models.SearchAXElementsRequest} req
+ * @returns {$CancellablePromise<$models.SearchAXElementsResult>}
+ */
+export function SearchAXElements(req) {
+    return $Call.ByID(3325993616, req).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType21($result);
     }));
 }
 
@@ -461,7 +511,7 @@ export function SetEventEmitter(emit) {
  */
 export function SetMousePosition(req) {
     return $Call.ByID(1284603156, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
+        return $$createType1($result);
     }));
 }
 
@@ -471,7 +521,7 @@ export function SetMousePosition(req) {
  */
 export function TapKeys(req) {
     return $Call.ByID(1028588513, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
+        return $$createType1($result);
     }));
 }
 
@@ -482,7 +532,7 @@ export function TapKeys(req) {
  */
 export function TranslateImagePointToScreen(path, deliveredPoint) {
     return $Call.ByID(3444309878, path, deliveredPoint).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType17($result);
+        return $$createType22($result);
     }));
 }
 
@@ -492,7 +542,7 @@ export function TranslateImagePointToScreen(path, deliveredPoint) {
  */
 export function TypeText(req) {
     return $Call.ByID(1856316371, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
+        return $$createType1($result);
     }));
 }
 
@@ -502,7 +552,7 @@ export function TypeText(req) {
  */
 export function WaitForColor(req) {
     return $Call.ByID(1048117295, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType6($result);
+        return $$createType7($result);
     }));
 }
 
@@ -512,26 +562,31 @@ export function WaitForColor(req) {
  */
 export function WaitForWindowByTitle(req) {
     return $Call.ByID(1312114077, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType7($result);
+        return $$createType8($result);
     }));
 }
 
 // Private type creation functions
-const $$createType0 = $models.ActionResult.createFrom;
-const $$createType1 = $models.CaptureResult.createFrom;
-const $$createType2 = $models.AgentChatResponse.createFrom;
-const $$createType3 = $models.ClipboardState.createFrom;
-const $$createType4 = $models.ClipboardPasteResult.createFrom;
-const $$createType5 = $models.ColorPointResult.createFrom;
-const $$createType6 = $models.Point.createFrom;
-const $$createType7 = $models.WindowSummary.createFrom;
-const $$createType8 = $models.AgentSettings.createFrom;
-const $$createType9 = $models.DiagnosticsResponse.createFrom;
-const $$createType10 = $models.UIElementMetadataResult.createFrom;
-const $$createType11 = $models.FocusedWindowMetadataResult.createFrom;
-const $$createType12 = $models.PermissionReadinessResult.createFrom;
-const $$createType13 = $models.ScreenSizeResult.createFrom;
-const $$createType14 = $models.AgentModelOption.createFrom;
-const $$createType15 = $Create.Array($$createType14);
-const $$createType16 = $Create.Array($$createType7);
-const $$createType17 = $models.ImagePointTranslationResult.createFrom;
+const $$createType0 = $models.WindowAccessibilityElementActionResult.createFrom;
+const $$createType1 = $models.ActionResult.createFrom;
+const $$createType2 = $models.CaptureResult.createFrom;
+const $$createType3 = $models.AgentChatResponse.createFrom;
+const $$createType4 = $models.ClipboardState.createFrom;
+const $$createType5 = $models.ClipboardPasteResult.createFrom;
+const $$createType6 = $models.ColorPointResult.createFrom;
+const $$createType7 = $models.Point.createFrom;
+const $$createType8 = $models.WindowSummary.createFrom;
+const $$createType9 = $models.FocusAXElementResult.createFrom;
+const $$createType10 = $models.AgentSettings.createFrom;
+const $$createType11 = $models.DiagnosticsResponse.createFrom;
+const $$createType12 = $models.UIElementMetadataResult.createFrom;
+const $$createType13 = $models.FocusedWindowMetadataResult.createFrom;
+const $$createType14 = $models.PermissionReadinessResult.createFrom;
+const $$createType15 = $models.ScreenSizeResult.createFrom;
+const $$createType16 = $models.WindowAccessibilitySnapshotResult.createFrom;
+const $$createType17 = $models.AgentModelOption.createFrom;
+const $$createType18 = $Create.Array($$createType17);
+const $$createType19 = $Create.Array($$createType8);
+const $$createType20 = $models.PerformAXElementActionResult.createFrom;
+const $$createType21 = $models.SearchAXElementsResult.createFrom;
+const $$createType22 = $models.ImagePointTranslationResult.createFrom;
