@@ -7,7 +7,7 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
-	"gutgd/backend"
+	"github.com/PandelisZ/gutgd/backend"
 )
 
 //go:embed all:frontend/dist

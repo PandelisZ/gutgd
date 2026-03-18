@@ -1,11 +1,11 @@
-module gutgd
+module github.com/PandelisZ/gutgd
 
 go 1.25
 
 require (
 	github.com/openai/openai-go/v3 v3.28.0
 	github.com/wailsapp/wails/v3 v3.0.0-alpha.74
-	gut v0.0.0
+	github.com/PandelisZ/gut v0.0.0
 )
 
 require (
@@ -55,4 +55,4 @@ require (
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 )
 
-replace gut => ../gut
+replace github.com/PandelisZ/gut => ../gut

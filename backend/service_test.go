@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	"gut/native/common"
-	"gut/shared"
-	guttesting "gut/testing"
+	"github.com/PandelisZ/gut/native/common"
+	"github.com/PandelisZ/gut/shared"
+	guttesting "github.com/PandelisZ/gut/testing"
 )
 
 func TestParseButton(t *testing.T) {

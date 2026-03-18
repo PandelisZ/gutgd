@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/PandelisZ/gut/native/common"
+	"github.com/PandelisZ/gut/shared"
 	"github.com/openai/openai-go/v3/responses"
-	"gut/native/common"
-	"gut/shared"
 )
 
 func TestNormalizeAgentSettingsDefaultsModel(t *testing.T) {

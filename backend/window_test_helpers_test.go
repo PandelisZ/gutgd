@@ -4,10 +4,10 @@ import (
 	"context"
 	"time"
 
-	"gut"
-	"gut/native/common"
-	"gut/provider"
-	"gut/shared"
+	"github.com/PandelisZ/gut"
+	"github.com/PandelisZ/gut/native/common"
+	"github.com/PandelisZ/gut/provider"
+	"github.com/PandelisZ/gut/shared"
 )
 
 type fakeBackendWindowProvider struct {

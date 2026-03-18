@@ -19,12 +19,12 @@ import (
 	"sync"
 	"time"
 
-	"gut"
-	"gut/clipboard"
-	"gut/native/common"
-	"gut/shared"
-	guttesting "gut/testing"
-	gutwindow "gut/window"
+	"github.com/PandelisZ/gut"
+	"github.com/PandelisZ/gut/clipboard"
+	"github.com/PandelisZ/gut/native/common"
+	"github.com/PandelisZ/gut/shared"
+	guttesting "github.com/PandelisZ/gut/testing"
+	gutwindow "github.com/PandelisZ/gut/window"
 )
 
 func requiredCapabilitiesForGOOS(goos string) []common.Capability {

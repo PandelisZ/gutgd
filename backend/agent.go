@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"gut/native/common"
+	"github.com/PandelisZ/gut/native/common"
 
 	lua "github.com/Shopify/go-lua"
 	openai "github.com/openai/openai-go/v3"
