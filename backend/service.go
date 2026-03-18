@@ -66,6 +66,7 @@ type Service struct {
 	emitEvent              func(string, any)
 	agentCoordinateStates  map[string]agentCoordinateState
 	accessibilitySnapshots map[string]windowAccessibilitySnapshotCache
+	agentLuaSessions       map[string]*agentLuaSession
 }
 
 type ActionResult struct {
@@ -446,6 +447,7 @@ func NewService() *Service {
 		artifactDir:            filepath.Join(".", ".artifacts"),
 		agentCoordinateStates:  make(map[string]agentCoordinateState),
 		accessibilitySnapshots: make(map[string]windowAccessibilitySnapshotCache),
+		agentLuaSessions:       make(map[string]*agentLuaSession),
 	}
 }
 

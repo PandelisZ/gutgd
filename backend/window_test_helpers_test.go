@@ -253,5 +253,6 @@ func newTestServiceWithWindowsAccessibilityAndElements(accessibility provider.Ac
 		artifactDir:            ".",
 		agentCoordinateStates:  make(map[string]agentCoordinateState),
 		accessibilitySnapshots: make(map[string]windowAccessibilitySnapshotCache),
+		agentLuaSessions:       make(map[string]*agentLuaSession),
 	}
 }

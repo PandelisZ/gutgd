@@ -192,6 +192,12 @@ type agentCoordinateState struct {
 	Window *WindowSummary
 }
 
+type agentLuaSession struct {
+	State         *lua.State
+	Tools         map[string]agentTool
+	toolCallCount *int
+}
+
 type agentTool struct {
 	Name        string
 	Description string
@@ -257,7 +263,8 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 
 	client := openai.NewClient(option.WithAPIKey(settings.APIKey))
 	coordinateState := s.loadAgentCoordinateState(req.PreviousResponseID)
-	tools := s.agentToolsWithState(coordinateState)
+	luaSession := s.loadAgentLuaSession(req.PreviousResponseID)
+	tools := s.agentToolsWithState(coordinateState, luaSession)
 	instructions := combineInstructions(settings.SystemPrompt)
 	userRequest := latestUserRequestText(req.Messages)
 	inputItems := make([]responses.ResponseInputItemUnionParam, 0, len(req.Messages))
@@ -350,6 +357,7 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 				ResponseID: response.ID,
 			})
 			s.saveAgentCoordinateState(response.ID, coordinateState)
+			s.saveAgentLuaSession(response.ID, luaSession)
 			return AgentChatResponse{
 				Message: AgentChatMessage{
 					Role:    "assistant",
@@ -530,17 +538,17 @@ func (s *Service) agentTools() []agentTool {
 }
 
 func (s *Service) agentToolsForGOOS(goos string) []agentTool {
-	return s.agentToolsForGOOSWithState(goos, newAgentCoordinateState())
+	return s.agentToolsForGOOSWithState(goos, newAgentCoordinateState(), nil)
 }
 
-func (s *Service) agentToolsWithState(state *agentCoordinateState) []agentTool {
+func (s *Service) agentToolsWithState(state *agentCoordinateState, luaSession *agentLuaSession) []agentTool {
 	if state == nil {
 		state = newAgentCoordinateState()
 	}
-	return s.agentToolsForGOOSWithState(runtime.GOOS, state)
+	return s.agentToolsForGOOSWithState(runtime.GOOS, state, luaSession)
 }
 
-func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinateState) []agentTool {
+func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinateState, luaSession *agentLuaSession) []agentTool {
 	if state == nil {
 		state = newAgentCoordinateState()
 	}
@@ -583,13 +591,13 @@ func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinate
 		},
 		{
 			Name:        "run_lua_script",
-			Description: "Execute a Lua script that can call the available gutgd agent tools in a loop or computed pattern. Prefer this whenever the next work involves many repeated or math-driven actions such as drawing arcs, circles, grids, repeated drags, or parameter sweeps. Call tools.<tool_name>(args_table) inside Lua, inspect tool_schemas for available arguments, and let Lua generate the repetitive sequence in one tool call instead of issuing many manual tool calls.",
+			Description: "Execute a Lua script in a persistent Lua REPL context that can call the available gutgd agent tools in a loop or computed pattern. Prefer this whenever the next work involves many repeated or math-driven actions such as drawing arcs, circles, grids, repeated drags, or parameter sweeps. Use it to create smooth continuous motion, not dot-by-dot stamping: prefer drag_mouse for ordinary drags, prefer move_mouse_line for graceful continuous movement between meaningful points, and generate compact smoothed paths with geom helpers instead of tiny jittery step loops. Globals you assign at top level persist across future run_lua_script calls in the same conversation, so save reusable helpers or state there. Call tools.<tool_name>(args_table) inside Lua, inspect tool_schemas for available arguments, and let Lua generate the repetitive sequence in one tool call instead of issuing many manual tool calls.",
 			Parameters: objectSchema(map[string]any{
-				"script":             stringSchema("Lua source code to execute. Use tools.<tool_name>(args_table) to call tools, and return a Lua value at the end if you want structured output."),
+				"script":             stringSchema("Lua source code to execute. Write small snippets of interactive Lua. Globals and functions assigned at top level persist across future run_lua_script calls in the same conversation. Use tools.<tool_name>(args_table) to call tools, inspect tool_schemas for available arguments, and return a Lua value at the end if you want structured output. You have access only to the standard Lua libraries opened by the harness, the tools table, the tool_schemas table, and the built-in geom helpers. Do not behave like a dot matrix printer: prefer smooth paths, meaningful interpolation, drag_mouse for ordinary press-move-release work, and move_mouse_line between generated anchor points instead of issuing huge numbers of tiny disconnected clicks or micro-moves."),
 				"instruction_budget": integerSchema("Optional Lua VM instruction budget used to stop runaway loops."),
 			}, "script"),
 			Run: func(raw string) (any, error) {
-				return runLuaScriptTool(tools, raw)
+				return runLuaScriptTool(luaSession, tools, raw)
 			},
 		},
 		{
@@ -1489,14 +1497,15 @@ Do not use full-screen capture for a precise click when the target is inside a s
 Use get_coordinate_space to inspect the current coordinate mode. Use switch_to_active_window_space or switch_to_window_space to enter window space when you are working inside a single window. In window space, x/y coordinates for pointer movement, drag, color_at, and capture_region are relative to that window's top-left corner and the scaffolding translates them into real screen coordinates for you. Use switch_to_screen_space to go back to absolute screen coordinates.
 On macOS, screenshots may be retina-scaled, so image pixels are often 2x screen coordinates. The macOS menu bar is included in full-screen captures; do not add a separate menu-bar offset. Use the capture metadata and translate_image_point_to_screen to convert image coordinates back to absolute screen coordinates.
 capture_region returns the screen offset of the captured image and may include delivered-image scale plus original-versus-delivered size metadata. Fresh capture_region or capture_screen outputs are automatically attached back into the next model step as image context, so the default visual flow is capture first, then reason directly from that returned image. Use translate_image_point_to_screen for precise grounding from a fresh capture. Keep analyze_screenshot as a structured fallback when direct inspection is not enough; do not call analyze_screenshot immediately after a fresh capture unless you specifically need structured coordinate-aware interpretation that direct image reasoning cannot provide. Use load_image_for_context only for previously saved screenshots or arbitrary image paths that were not just captured. Be careful if you are currently in window space: translate_image_point_to_screen returns absolute screen coordinates, not window-relative coordinates. For small controls, rerun capture_region on a tighter area before the final click instead of reasoning from a broad capture.
-Use run_lua_script early when the next work is repetitive, geometric, or depends on loops, counters, interpolation, trigonometry, or other math. Prefer Lua over many separate tool calls for circles, arcs, grids, repeated drags, sweeps, or any computed sequence. Inside Lua, call tools.<tool_name>(args_table), inspect tool_schemas for arguments, and return a Lua table with any useful summary of what the script did.
+Use run_lua_script early when the next work is repetitive, geometric, or depends on loops, counters, interpolation, trigonometry, or other math. Prefer Lua over many separate tool calls for circles, arcs, grids, repeated drags, sweeps, or any computed sequence. Inside Lua, call tools.<tool_name>(args_table), inspect tool_schemas for arguments, and return a Lua table with any useful summary of what the script did. The Lua context is persistent across run_lua_script calls in the same conversation: top-level globals and helper functions remain available on later calls, so save reusable state there when it will help.
+When using run_lua_script for pointer drawing, do not behave like a dot matrix printer. Prefer smooth continuous movement: use geom.smooth_line, geom.arc, geom.circle, geom.simplify, and geom.round_points to build compact paths; use move_mouse_line between meaningful anchor points; and prefer drag_mouse for ordinary press-move-release motion. Avoid giant loops of tiny disconnected clicks or tiny jittering moves unless the task explicitly requires that pattern.
 If you use mouse_down in a plan or Lua script, make sure you also call mouse_up before finishing that sequence unless the task explicitly requires keeping the button held. Prefer drag_mouse for ordinary drags, and use mouse_down/mouse_up only when you need custom press-move-release choreography.
 When continuing an existing conversation through previous_response_id, rely on the server-side conversation state rather than asking the user to resend old turns.
 Never print pseudo tool-call syntax such as "to=functions.*", JSON envelopes, or planning text in place of an actual tool call. If you need a tool, call it through the Responses function tool interface.
 If multiple independent tool calls are needed in the same step, issue real parallel function calls rather than describing them in text.
 Use common key aliases naturally: meta, super, cmd, and command all mean the platform meta key in this environment.
 Do not narrate that you are about to call a tool. Call the tool first, then describe the result after the tool outputs are available.
-Inside run_lua_script, use the built-in geom helpers to reduce boilerplate for computed pointer paths: geom.line, geom.smooth_line, geom.arc, geom.circle, geom.lerp, geom.smoothstep, geom.round_to_step, geom.snap_point, geom.round_points, and geom.simplify. Prefer geom.smooth_line or geom.arc/circle for visually smooth mouse drawings instead of hard-coding every point manually.
+Inside run_lua_script, use the built-in geom helpers to reduce boilerplate for computed pointer paths: geom.line, geom.smooth_line, geom.arc, geom.circle, geom.lerp, geom.smoothstep, geom.round_to_step, geom.snap_point, geom.round_points, and geom.simplify. Prefer geom.smooth_line or geom.arc/circle for visually smooth mouse drawings instead of hard-coding every point manually, and simplify or round paths before executing them when that preserves the intended shape.
 Do not invent tool results.`
 	if goos == "darwin" {
 		prompt += `
@@ -1925,7 +1934,7 @@ type luaScriptRequest struct {
 	InstructionBudget int    `json:"instruction_budget"`
 }
 
-func runLuaScriptTool(tools []agentTool, raw string) (any, error) {
+func runLuaScriptTool(session *agentLuaSession, tools []agentTool, raw string) (any, error) {
 	var payload luaScriptRequest
 	if err := decodeToolArgs(raw, &payload); err != nil {
 		return nil, err
@@ -1940,11 +1949,13 @@ func runLuaScriptTool(tools []agentTool, raw string) (any, error) {
 		instructionBudget = 500000
 	}
 
-	state := lua.NewState()
-	openLuaAgentLibraries(state)
+	session = prepareAgentLuaSession(session, tools)
+	state := session.State
 	toolCallCount := 0
-	registerLuaToolGlobals(state, tools, &toolCallCount)
+	session.toolCallCount = &toolCallCount
+	bindAgentLuaSession(session, tools)
 	installLuaInstructionGuard(state, instructionBudget)
+	state.SetTop(0)
 
 	if err := lua.LoadString(state, script); err != nil {
 		return nil, fmt.Errorf("lua load failed: %w", err)
@@ -1957,6 +1968,7 @@ func runLuaScriptTool(tools []agentTool, raw string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	state.SetTop(0)
 
 	return AgentLuaScriptResult{
 		Script:    script,
@@ -1964,6 +1976,29 @@ func runLuaScriptTool(tools []agentTool, raw string) (any, error) {
 		Result:    result,
 		Message:   fmt.Sprintf("Executed Lua script with %d tool calls.", toolCallCount),
 	}, nil
+}
+
+func prepareAgentLuaSession(session *agentLuaSession, tools []agentTool) *agentLuaSession {
+	if session == nil {
+		session = &agentLuaSession{}
+	}
+	if session.State == nil {
+		state := lua.NewState()
+		openLuaAgentLibraries(state)
+		session.State = state
+	}
+	return session
+}
+
+func bindAgentLuaSession(session *agentLuaSession, tools []agentTool) {
+	if session == nil || session.State == nil {
+		return
+	}
+	session.Tools = make(map[string]agentTool, len(tools))
+	for _, tool := range tools {
+		session.Tools[tool.Name] = tool
+	}
+	registerLuaToolGlobals(session.State, session)
 }
 
 func openLuaAgentLibraries(state *lua.State) {
@@ -1984,9 +2019,12 @@ func openLuaAgentLibraries(state *lua.State) {
 	registerLuaGeometryLibrary(state)
 }
 
-func registerLuaToolGlobals(state *lua.State, tools []agentTool, toolCallCount *int) {
-	state.CreateTable(0, len(tools))
-	for _, tool := range tools {
+func registerLuaToolGlobals(state *lua.State, session *agentLuaSession) {
+	if session == nil {
+		return
+	}
+	state.CreateTable(0, len(session.Tools))
+	for _, tool := range session.Tools {
 		if tool.Name == "run_lua_script" {
 			continue
 		}
@@ -2002,7 +2040,9 @@ func registerLuaToolGlobals(state *lua.State, tools []agentTool, toolCallCount *
 				lua.Errorf(l, "failed to marshal lua tool arguments for %s: %s", currentTool.Name, err.Error())
 				panic("unreachable")
 			}
-			*toolCallCount++
+			if session.toolCallCount != nil {
+				(*session.toolCallCount)++
+			}
 			result, err := currentTool.Run(string(payload))
 			if err != nil {
 				l.PushNil()
@@ -2021,7 +2061,7 @@ func registerLuaToolGlobals(state *lua.State, tools []agentTool, toolCallCount *
 	state.SetGlobal("tools")
 
 	specs := make(map[string]any, 0)
-	for _, tool := range tools {
+	for _, tool := range session.Tools {
 		if tool.Name == "run_lua_script" {
 			continue
 		}
@@ -2974,6 +3014,28 @@ func (s *Service) saveAgentCoordinateState(responseID string, state *agentCoordi
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.agentCoordinateStates[key] = next
+}
+
+func (s *Service) loadAgentLuaSession(previousResponseID string) *agentLuaSession {
+	key := strings.TrimSpace(previousResponseID)
+	if key == "" {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.agentLuaSessions[key]
+}
+
+func (s *Service) saveAgentLuaSession(responseID string, session *agentLuaSession) {
+	key := strings.TrimSpace(responseID)
+	if key == "" || session == nil || session.State == nil {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.agentLuaSessions[key] = session
 }
 
 func accumulateAgentUsage(total *AgentUsage, response *responses.Response) {

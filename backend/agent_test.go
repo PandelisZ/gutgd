@@ -300,7 +300,7 @@ func TestRunLuaScriptToolSupportsLoopsAndToolSchemas(t *testing.T) {
 		},
 	}
 
-	result, err := runLuaScriptTool(tools, `{"script":"local results = {}\nfor i = 1, 4 do\n  local point, tool_err = tools.move_mouse_line({ x = i, y = i * 2 })\n  if tool_err then error(tool_err) end\n  results[i] = point\nend\nreturn { total = #results, first_description = tool_schemas.move_mouse_line.description, last_y = results[4].y }"}`)
+	result, err := runLuaScriptTool(nil, tools, `{"script":"local results = {}\nfor i = 1, 4 do\n  local point, tool_err = tools.move_mouse_line({ x = i, y = i * 2 })\n  if tool_err then error(tool_err) end\n  results[i] = point\nend\nreturn { total = #results, first_description = tool_schemas.move_mouse_line.description, last_y = results[4].y }"}`)
 	if err != nil {
 		t.Fatalf("runLuaScriptTool returned error: %v", err)
 	}
@@ -345,7 +345,7 @@ func TestRunLuaScriptToolAllowsUnlimitedCallsByDefault(t *testing.T) {
 		},
 	}
 
-	result, err := runLuaScriptTool(tools, `{"script":"for i = 1, 40 do local _, tool_err = tools.move_mouse_line({ x = i, y = i }) if tool_err then error(tool_err) end end return { done = true }"}`)
+	result, err := runLuaScriptTool(nil, tools, `{"script":"for i = 1, 40 do local _, tool_err = tools.move_mouse_line({ x = i, y = i }) if tool_err then error(tool_err) end end return { done = true }"}`)
 	if err != nil {
 		t.Fatalf("runLuaScriptTool returned error: %v", err)
 	}
@@ -359,7 +359,7 @@ func TestRunLuaScriptToolAllowsUnlimitedCallsByDefault(t *testing.T) {
 }
 
 func TestRunLuaScriptToolExposesGeometryHelpers(t *testing.T) {
-	result, err := runLuaScriptTool(nil, `{"script":"local pts = geom.circle(100, 200, 10, 4, 1)\nlocal line = geom.smooth_line(0, 0, 10, 10, 3, 1)\nlocal snapped = geom.snap_point(12.2, 19.8, 5)\nlocal rounded = geom.round_to_step(13.2, 4)\nreturn { count = #pts, first = pts[1], line_count = #line, snapped = snapped, rounded = rounded }"}`)
+	result, err := runLuaScriptTool(nil, nil, `{"script":"local pts = geom.circle(100, 200, 10, 4, 1)\nlocal line = geom.smooth_line(0, 0, 10, 10, 3, 1)\nlocal snapped = geom.snap_point(12.2, 19.8, 5)\nlocal rounded = geom.round_to_step(13.2, 4)\nreturn { count = #pts, first = pts[1], line_count = #line, snapped = snapped, rounded = rounded }"}`)
 	if err != nil {
 		t.Fatalf("runLuaScriptTool returned error: %v", err)
 	}
@@ -392,6 +392,48 @@ func TestRunLuaScriptToolExposesGeometryHelpers(t *testing.T) {
 	}
 }
 
+func TestRunLuaScriptToolPersistsGlobalsAcrossCalls(t *testing.T) {
+	session := &agentLuaSession{}
+	tools := []agentTool{
+		{
+			Name:        "move_mouse_line",
+			Description: "Move the pointer in a straight line.",
+			Parameters: objectSchema(map[string]any{
+				"x": integerSchema("x"),
+				"y": integerSchema("y"),
+			}, "x", "y"),
+			Run: func(raw string) (any, error) {
+				return map[string]any{"ok": true}, nil
+			},
+		},
+	}
+
+	_, err := runLuaScriptTool(session, tools, `{"script":"counter = (counter or 0) + 1\nfunction next_point(x, y)\n  return { x = x + counter, y = y + counter }\nend\nreturn { counter = counter }"}`)
+	if err != nil {
+		t.Fatalf("first runLuaScriptTool returned error: %v", err)
+	}
+	result, err := runLuaScriptTool(session, tools, `{"script":"counter = counter + 1\nlocal point = next_point(10, 20)\nreturn { counter = counter, point = point }"}`)
+	if err != nil {
+		t.Fatalf("second runLuaScriptTool returned error: %v", err)
+	}
+
+	luaResult, ok := result.(AgentLuaScriptResult)
+	if !ok {
+		t.Fatalf("expected AgentLuaScriptResult, got %T", result)
+	}
+	resultMap, ok := luaResult.Result.(map[string]any)
+	if !ok {
+		t.Fatalf("expected structured Lua result map, got %#v", luaResult.Result)
+	}
+	if resultMap["counter"] != 2 {
+		t.Fatalf("expected persisted counter=2, got %#v", resultMap["counter"])
+	}
+	point, ok := resultMap["point"].(map[string]any)
+	if !ok || point["x"] != 12 || point["y"] != 22 {
+		t.Fatalf("unexpected persisted function result: %#v", resultMap["point"])
+	}
+}
+
 func TestSwitchToWindowSpaceRejectsUnknownHandle(t *testing.T) {
 	service := newTestServiceWithWindows(WindowSummary{
 		Handle: 7,
@@ -399,7 +441,7 @@ func TestSwitchToWindowSpaceRejectsUnknownHandle(t *testing.T) {
 		Region: Region{Left: 300, Top: 120, Width: 800, Height: 600},
 	})
 	state := newAgentCoordinateState()
-	tool, ok := findAgentTool(service.agentToolsForGOOSWithState("linux", state), "switch_to_window_space")
+	tool, ok := findAgentTool(service.agentToolsForGOOSWithState("linux", state, nil), "switch_to_window_space")
 	if !ok {
 		t.Fatal("expected switch_to_window_space to be exposed")
 	}
@@ -528,7 +570,7 @@ func TestGetElementAtPointMetadataToolTranslatesWindowCoordinates(t *testing.T) 
 			Region: Region{Left: 300, Top: 120, Width: 800, Height: 600},
 		},
 	}
-	tool, ok := findAgentTool(service.agentToolsForGOOSWithState("darwin", state), "get_element_at_point_metadata")
+	tool, ok := findAgentTool(service.agentToolsForGOOSWithState("darwin", state, nil), "get_element_at_point_metadata")
 	if !ok {
 		t.Fatal("expected get_element_at_point_metadata to be exposed")
 	}
@@ -573,7 +615,7 @@ func TestAccessibilityActionToolsTranslateWindowCoordinates(t *testing.T) {
 		},
 	}
 
-	pointActionTool, ok := findAgentTool(service.agentToolsForGOOSWithState("darwin", state), "perform_element_action_at_point")
+	pointActionTool, ok := findAgentTool(service.agentToolsForGOOSWithState("darwin", state, nil), "perform_element_action_at_point")
 	if !ok {
 		t.Fatal("expected perform_element_action_at_point to be exposed")
 	}
@@ -592,7 +634,7 @@ func TestAccessibilityActionToolsTranslateWindowCoordinates(t *testing.T) {
 		t.Fatalf("unexpected forwarded point action: point=%+v action=%q", accessibility.lastElementActionAtPoint, accessibility.lastElementActionAtPointAction)
 	}
 
-	focusTool, ok := findAgentTool(service.agentToolsForGOOSWithState("darwin", state), "focus_element_at_point")
+	focusTool, ok := findAgentTool(service.agentToolsForGOOSWithState("darwin", state, nil), "focus_element_at_point")
 	if !ok {
 		t.Fatal("expected focus_element_at_point to be exposed")
 	}
