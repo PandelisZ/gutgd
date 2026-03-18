@@ -23,6 +23,9 @@ func TestNormalizeAgentSettingsDefaultsModel(t *testing.T) {
 	if settings.APIKey != "test-key" {
 		t.Fatalf("expected trimmed API key, got %q", settings.APIKey)
 	}
+	if settings.BaseURL != "" {
+		t.Fatalf("expected empty base URL by default, got %q", settings.BaseURL)
+	}
 	if settings.Model != defaultAgentModel {
 		t.Fatalf("expected default model %q, got %q", defaultAgentModel, settings.Model)
 	}
@@ -462,10 +465,13 @@ func TestAgentToolsMatchPlatformAvailability(t *testing.T) {
 	if !hasAgentTool(darwinTools, "press_special_key") {
 		t.Fatal("expected press_special_key to be exposed on darwin")
 	}
-	for _, hidden := range []string{"tap_keys", "press_keys", "release_keys", "highlight_region"} {
-		if hasAgentTool(darwinTools, hidden) {
-			t.Fatalf("expected %s to be hidden on darwin", hidden)
+	for _, exposed := range []string{"tap_keys", "press_keys", "release_keys"} {
+		if !hasAgentTool(darwinTools, exposed) {
+			t.Fatalf("expected %s to be exposed on darwin", exposed)
 		}
+	}
+	if hasAgentTool(darwinTools, "highlight_region") {
+		t.Fatalf("expected %s to be hidden on darwin", "highlight_region")
 	}
 
 	linuxTools := service.agentToolsForGOOS("linux")
@@ -484,7 +490,7 @@ func TestAgentDeveloperPromptForDarwinMentionsSafeFallbacks(t *testing.T) {
 	for _, needle := range []string{
 		"macOS 26+",
 		"capture_screen and capture_region use the safe OS screenshot fallback",
-		"Prefer press_special_key",
+		"Prefer tap_keys for real shortcuts like cmd+space",
 		"get_permission_readiness",
 		"get_focused_window_metadata",
 		"get_focused_element_metadata",
@@ -495,7 +501,7 @@ func TestAgentDeveloperPromptForDarwinMentionsSafeFallbacks(t *testing.T) {
 		"focused_window or frontmost_application scope",
 		"permission_blocked",
 		"Accessibility permission is required",
-		"tap_keys, press_keys, release_keys, and highlight_region are intentionally unavailable",
+		"Highlight_region remains intentionally unavailable",
 		"switch_to_active_window_space",
 		"load_image_for_context",
 		"inspect that returned image first",

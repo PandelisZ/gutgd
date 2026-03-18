@@ -91,9 +91,8 @@ export default function AgentView() {
     setActiveRunID(clientRunID)
 
     try {
-      const payloadMessages = responseID ? [userMessage] : [...messages, userMessage]
       const result = await api.chatWithAgent({
-        messages: payloadMessages,
+        messages: [userMessage],
         previous_response_id: responseID,
         client_run_id: clientRunID
       })
@@ -227,6 +226,9 @@ function messageTone(item) {
   if (item.kind === 'tool_call' || item.kind === 'tool_output') {
     return 'tool'
   }
+  if (isContinueMessage(item)) {
+    return 'continue'
+  }
   return item.role || 'assistant'
 }
 
@@ -267,6 +269,18 @@ function renderTranscriptItem(item) {
           </ul>
         ) : null}
         {renderRawPayload('Show raw result', raw)}
+      </>
+    )
+  }
+
+  if (isContinueMessage(item)) {
+    return (
+      <>
+        <header>
+          <span>Continue</span>
+          <code>step budget</code>
+        </header>
+        <p>The agent hit its local step budget and the harness sent <code>continue</code> so it could keep working with the existing conversation state.</p>
       </>
     )
   }
@@ -422,11 +436,15 @@ function normalizeTimelineOrder(items) {
 }
 
 function isTrailingContinueMessage(item) {
-  return item?.kind === 'message' && item?.role === 'user' && item?.content === 'continue'
+  return isContinueMessage(item)
 }
 
 function isMaxDepthAssistantMessage(item) {
   return item?.kind === 'message'
     && item?.role === 'assistant'
     && item?.content === 'The agent reached the maximum tool-call depth before producing a final answer. Review the tool activity above and refine the request if needed.'
+}
+
+function isContinueMessage(item) {
+  return item?.kind === 'message' && item?.role === 'user' && item?.content === 'continue'
 }

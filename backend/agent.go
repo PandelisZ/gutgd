@@ -66,10 +66,16 @@ Safety and reliability:
 Response style:
 - Be concise and operational.
 - Call tools instead of describing hypothetical tool calls.
-- Summarize what you did, what changed, and any remaining uncertainty.`
+- Summarize what you did, what changed, and any remaining uncertainty.
+
+Scaffold discipline:
+- Every turn, read the injected <agent_state> scaffold before choosing the next action.
+- Use its coordinate space, previous-step evaluation, compact memory, plan, todo list, next goal, and recent history to stay grounded in the current verified state.
+- When a continuation turn appears, continue from that scaffolded state and the latest verified evidence rather than restarting the task from zero.`
 
 type AgentSettings struct {
 	APIKey          string `json:"api_key"`
+	BaseURL         string `json:"base_url"`
 	Model           string `json:"model"`
 	ReasoningEffort string `json:"reasoning_effort"`
 	SystemPrompt    string `json:"system_prompt"`
@@ -226,7 +232,7 @@ func (s *Service) ListAgentModels() ([]AgentModelOption, error) {
 		return nil, fmt.Errorf("openai api key is required")
 	}
 
-	client := openai.NewClient(option.WithAPIKey(settings.APIKey))
+	client := newAgentOpenAIClient(settings)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -261,7 +267,7 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 		return AgentChatResponse{}, fmt.Errorf("at least one chat message is required")
 	}
 
-	client := openai.NewClient(option.WithAPIKey(settings.APIKey))
+	client := newAgentOpenAIClient(settings)
 	coordinateState := s.loadAgentCoordinateState(req.PreviousResponseID)
 	luaSession := s.loadAgentLuaSession(req.PreviousResponseID)
 	tools := s.agentToolsWithState(coordinateState, luaSession)
@@ -294,6 +300,7 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 	params := responses.ResponseNewParams{
 		Instructions: openai.String(instructions),
 		Model:        openai.ChatModel(settings.Model),
+		Store:        openai.Bool(true),
 		Input: responses.ResponseNewParamsInputUnion{
 			OfInputItemList: prependAgentScaffold(agentLoopScaffold(userRequest, nil, coordinateState), inputItems...),
 		},
@@ -447,6 +454,7 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 			response, err = client.Responses.New(ctx, responses.ResponseNewParams{
 				Instructions:       openai.String(instructions),
 				Model:              openai.ChatModel(settings.Model),
+				Store:              openai.Bool(true),
 				PreviousResponseID: openai.String(response.ID),
 				Input: responses.ResponseNewParamsInputUnion{
 					OfInputItemList: continueInputItems(agentLoopScaffold(userRequest, transcriptItems, coordinateState), outputs),
@@ -485,6 +493,7 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 		nextParams := responses.ResponseNewParams{
 			Instructions:       openai.String(instructions),
 			Model:              openai.ChatModel(settings.Model),
+			Store:              openai.Bool(true),
 			PreviousResponseID: openai.String(response.ID),
 			Input: responses.ResponseNewParamsInputUnion{
 				OfInputItemList: prependAgentScaffold(agentLoopScaffold(userRequest, transcriptItems, coordinateState), outputs...),
@@ -863,8 +872,7 @@ func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinate
 			Name:        "type_text",
 			Description: "Type plain text into the currently focused application. Use this for words, sentences, paragraphs, or any multi-character text input instead of spelling characters out with tap_keys.",
 			Parameters: objectSchema(map[string]any{
-				"text":          stringSchema("Text to type into the active application."),
-				"auto_delay_ms": integerSchema("Optional key delay in milliseconds."),
+				"text": stringSchema("Text to type into the active application."),
 			}, "text"),
 			Run: func(raw string) (any, error) {
 				var payload KeyboardTextRequest
@@ -878,8 +886,7 @@ func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinate
 			Name:        "type_text_block",
 			Description: "Type a full sentence, multiple sentences, or a paragraph into the currently focused application in a single tool call. Prefer this over tap_keys when entering natural language text.",
 			Parameters: objectSchema(map[string]any{
-				"text":          stringSchema("Full text to type into the active application."),
-				"auto_delay_ms": integerSchema("Optional key delay in milliseconds."),
+				"text": stringSchema("Full text to type into the active application."),
 			}, "text"),
 			Run: func(raw string) (any, error) {
 				var payload KeyboardTextRequest
@@ -932,7 +939,7 @@ func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinate
 				if strings.TrimSpace(settings.APIKey) == "" {
 					return nil, fmt.Errorf("openai api key is required")
 				}
-				client := openai.NewClient(option.WithAPIKey(settings.APIKey))
+				client := newAgentOpenAIClient(settings)
 				return analyzeScreenshot(context.Background(), client, settings.Model, payload)
 			},
 		},
@@ -964,9 +971,8 @@ func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinate
 			Name:        "set_mouse_position",
 			Description: "Move the pointer directly to a coordinate in the current coordinate space. In window space, x/y are relative to the selected window's top-left corner.",
 			Parameters: objectSchema(map[string]any{
-				"x":             integerSchema("Target x-coordinate."),
-				"y":             integerSchema("Target y-coordinate."),
-				"auto_delay_ms": integerSchema("Optional mouse delay in milliseconds."),
+				"x": integerSchema("Target x-coordinate."),
+				"y": integerSchema("Target y-coordinate."),
 			}, "x", "y"),
 			Run: func(raw string) (any, error) {
 				var payload MouseMoveRequest
@@ -993,10 +999,9 @@ func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinate
 			Name:        "move_mouse_line",
 			Description: "Move the pointer along a straight path to a coordinate in the current coordinate space. In window space, x/y are relative to the selected window's top-left corner.",
 			Parameters: objectSchema(map[string]any{
-				"x":             integerSchema("Target x-coordinate."),
-				"y":             integerSchema("Target y-coordinate."),
-				"speed":         integerSchema("Optional pointer speed."),
-				"auto_delay_ms": integerSchema("Optional mouse delay in milliseconds."),
+				"x":     integerSchema("Target x-coordinate."),
+				"y":     integerSchema("Target y-coordinate."),
+				"speed": integerSchema("Optional pointer speed."),
 			}, "x", "y"),
 			Run: func(raw string) (any, error) {
 				var payload MouseLineRequest
@@ -1071,9 +1076,8 @@ func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinate
 			Name:        "scroll_mouse",
 			Description: "Scroll the mouse in one of four directions.",
 			Parameters: objectSchema(map[string]any{
-				"direction":     enumSchema("Scroll direction.", "up", "down", "left", "right"),
-				"amount":        integerSchema("Scroll amount."),
-				"auto_delay_ms": integerSchema("Optional mouse delay in milliseconds."),
+				"direction": enumSchema("Scroll direction.", "up", "down", "left", "right"),
+				"amount":    integerSchema("Scroll amount."),
 			}, "direction", "amount"),
 			Run: func(raw string) (any, error) {
 				var payload MouseScrollRequest
@@ -1087,12 +1091,11 @@ func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinate
 			Name:        "drag_mouse",
 			Description: "Drag the mouse from one point to another with the left button using the current coordinate space. In window space, both endpoints are relative to the selected window's top-left corner.",
 			Parameters: objectSchema(map[string]any{
-				"from_x":        integerSchema("Start x-coordinate."),
-				"from_y":        integerSchema("Start y-coordinate."),
-				"to_x":          integerSchema("Destination x-coordinate."),
-				"to_y":          integerSchema("Destination y-coordinate."),
-				"speed":         integerSchema("Optional pointer speed."),
-				"auto_delay_ms": integerSchema("Optional mouse delay in milliseconds."),
+				"from_x": integerSchema("Start x-coordinate."),
+				"from_y": integerSchema("Start y-coordinate."),
+				"to_x":   integerSchema("Destination x-coordinate."),
+				"to_y":   integerSchema("Destination y-coordinate."),
+				"speed":  integerSchema("Optional pointer speed."),
 			}, "from_x", "from_y", "to_x", "to_y"),
 			Run: func(raw string) (any, error) {
 				var payload MouseDragRequest
@@ -1392,6 +1395,45 @@ func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinate
 		},
 	}
 
+	tools = append(tools,
+		agentTool{
+			Name:        "tap_keys",
+			Description: "Tap one or more keys, optionally as a key chord. Prefer this for real keyboard shortcuts such as cmd+space, cmd+c, ctrl+l, or alt+tab.",
+			Parameters:  keyboardKeysSchema(),
+			Run: func(raw string) (any, error) {
+				var payload KeyboardKeysRequest
+				if err := decodeToolArgs(raw, &payload); err != nil {
+					return nil, err
+				}
+				return s.TapKeys(payload)
+			},
+		},
+		agentTool{
+			Name:        "press_keys",
+			Description: "Press one or more keys without releasing them. Use this only when you need custom key-down choreography across multiple steps.",
+			Parameters:  keyboardKeysSchema(),
+			Run: func(raw string) (any, error) {
+				var payload KeyboardKeysRequest
+				if err := decodeToolArgs(raw, &payload); err != nil {
+					return nil, err
+				}
+				return s.PressKeys(payload)
+			},
+		},
+		agentTool{
+			Name:        "release_keys",
+			Description: "Release one or more keys that were previously pressed with press_keys.",
+			Parameters:  keyboardKeysSchema(),
+			Run: func(raw string) (any, error) {
+				var payload KeyboardKeysRequest
+				if err := decodeToolArgs(raw, &payload); err != nil {
+					return nil, err
+				}
+				return s.ReleaseKeys(payload)
+			},
+		},
+	)
+
 	if goos != "darwin" {
 		tools = slices.DeleteFunc(tools, func(tool agentTool) bool {
 			return tool.Name == "press_special_key"
@@ -1407,42 +1449,6 @@ func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinate
 						return nil, err
 					}
 					return s.HighlightRegion(payload)
-				},
-			},
-			agentTool{
-				Name:        "tap_keys",
-				Description: "Tap one or more keys, optionally as a key chord.",
-				Parameters:  keyboardKeysSchema(),
-				Run: func(raw string) (any, error) {
-					var payload KeyboardKeysRequest
-					if err := decodeToolArgs(raw, &payload); err != nil {
-						return nil, err
-					}
-					return s.TapKeys(payload)
-				},
-			},
-			agentTool{
-				Name:        "press_keys",
-				Description: "Press one or more keys without releasing them.",
-				Parameters:  keyboardKeysSchema(),
-				Run: func(raw string) (any, error) {
-					var payload KeyboardKeysRequest
-					if err := decodeToolArgs(raw, &payload); err != nil {
-						return nil, err
-					}
-					return s.PressKeys(payload)
-				},
-			},
-			agentTool{
-				Name:        "release_keys",
-				Description: "Release one or more keys that were previously pressed.",
-				Parameters:  keyboardKeysSchema(),
-				Run: func(raw string) (any, error) {
-					var payload KeyboardKeysRequest
-					if err := decodeToolArgs(raw, &payload); err != nil {
-						return nil, err
-					}
-					return s.ReleaseKeys(payload)
 				},
 			},
 		)
@@ -1490,7 +1496,8 @@ Prefer the smallest number of tool calls needed to satisfy the request.
 Summarize what you did, include notable tool results, and be explicit when the native backend reports an unsupported capability.
 Do not treat GUT_ENABLE_LIVE_TESTS or the diagnostics field live_enabled as a blocker for normal gutgd actions. Those fields belong to the separate gut live-test harness. In gutgd, use the actual tool call result and the feature_status/capability availability to decide whether an action is possible.
 Before screenshot-guessing or blind clicking inside an app, prefer get_permission_readiness on macOS to see whether AX-backed reads are available. If accessibility metadata tools are available, prefer get_window_accessibility_snapshot for the active or target window when you need the full UI picture in one step. It returns markdown plus stable element IDs, screen regions, and suggested actions for the whole accessible window tree. After that, prefer act_on_window_accessibility_element with the returned snapshot_id and element_id instead of guessing coordinates again. Use get_focused_window_metadata, get_focused_element_metadata, and get_element_at_point_metadata as narrower fallbacks when you only need a small piece of that picture. When you need higher-level AX search and stable refs across a focused window or the frontmost application, use search_ax_elements with bounded criteria and an explicit scope, inspect the returned matches/ref/metadata, then use focus_ax_element or perform_ax_element_action on one chosen ref. If the backend reports permission_blocked, tell the user Accessibility permission is required instead of pretending the feature is unsupported. If it reports unsupported or unavailable, fall back to window discovery and screenshot tools.
-When entering plain language text, sentences, or paragraphs into an application, prefer type_text or type_text_block. When you need to submit a text field or move focus with a non-text key, prefer press_special_key for enter, return, tab, escape, space, backspace, delete, or arrow keys. Use tap_keys only for non-text keys, shortcuts, or isolated single-key actions when that tool is available.
+When entering plain language text, sentences, or paragraphs into an application, prefer type_text or type_text_block. When you need a real keyboard shortcut or key chord such as cmd+space, cmd+c, cmd+v, ctrl+l, or alt+tab, prefer tap_keys with the full key list in one call. When you need to submit a text field or move focus with a single non-text key, prefer press_special_key for enter, return, tab, escape, space, backspace, delete, or arrow keys. Use press_keys and release_keys only when you need custom key-down/key-up choreography across multiple steps.
+Keyboard and mouse action delays are managed by the harness for speed. Do not try to request custom typing or pointer delays unless a future tool explicitly exposes that capability again.
 After a tool returns a concrete result or structured error, do not repeat the same tool call with identical arguments unless the user explicitly asked for a retry or the environment changed.
 For visually precise clicks, do not guess repeatedly. First identify the relevant window with get_active_window or list_windows, then capture that window or a smaller region with capture_region. Fresh capture tool outputs are returned directly to the model as image context for the next step, so inspect that returned image first. For precise click grounding, prefer translate_image_point_to_screen with the delivered-image coordinates you chose from that fresh capture. If a target is small or ambiguous, capture a tighter region and verify again before clicking.
 Do not use full-screen capture for a precise click when the target is inside a single app window unless window discovery failed. Prefer smaller verification regions around the intended target after moving the pointer. Use get_active_window, list_windows, and capture_region to narrow the search area before clicking.
@@ -1509,7 +1516,7 @@ Inside run_lua_script, use the built-in geom helpers to reduce boilerplate for c
 Do not invent tool results.`
 	if goos == "darwin" {
 		prompt += `
-On macOS 26+, capture_screen and capture_region use the safe OS screenshot fallback instead of the hidden native screen.capture capability. Prefer press_special_key for enter, return, tab, escape, space, backspace, delete, and arrow keys. Before screenshot-guessing or blind clicking inside an app, prefer get_permission_readiness to check whether AX-backed metadata reads and actions are available. When those reads are available, prefer get_window_accessibility_snapshot first for the focused or chosen window, then use act_on_window_accessibility_element for cached ID-based interactions. Use get_focused_window_metadata, get_focused_element_metadata, and get_element_at_point_metadata when you only need a narrow check. For explicit AX search/ref flows, use search_ax_elements with focused_window or frontmost_application scope, inspect the returned matches and refs, then use focus_ax_element or perform_ax_element_action on one chosen ref. Inspect first, then act: use raise_focused_window only after get_focused_window_metadata, use perform_focused_element_action only after get_focused_element_metadata, use perform_element_action_at_point or focus_element_at_point only after get_element_at_point_metadata, and use focus_ax_element or perform_ax_element_action only after search_ax_elements. If AX tools report permission_blocked, tell the user Accessibility permission is required. If they report unsupported or unavailable, fall back to get_active_window, list_windows, capture_region, and related screenshot tools. Low-level tap_keys, press_keys, release_keys, and highlight_region are intentionally unavailable on macOS 26+.`
+On macOS 26+, capture_screen and capture_region use the safe OS screenshot fallback instead of the hidden native screen.capture capability. Prefer tap_keys for real shortcuts like cmd+space and other key chords, and prefer press_special_key for single non-text keys like enter, tab, escape, space, backspace, delete, and arrows. Before screenshot-guessing or blind clicking inside an app, prefer get_permission_readiness to check whether AX-backed metadata reads and actions are available. When those reads are available, prefer get_window_accessibility_snapshot first for the focused or chosen window, then use act_on_window_accessibility_element for cached ID-based interactions. Use get_focused_window_metadata, get_focused_element_metadata, and get_element_at_point_metadata when you only need a narrow check. For explicit AX search/ref flows, use search_ax_elements with focused_window or frontmost_application scope, inspect the returned matches and refs, then use focus_ax_element or perform_ax_element_action on one chosen ref. Inspect first, then act: use raise_focused_window only after get_focused_window_metadata, use perform_focused_element_action only after get_focused_element_metadata, use perform_element_action_at_point or focus_element_at_point only after get_element_at_point_metadata, and use focus_ax_element or perform_ax_element_action only after search_ax_elements. If AX tools report permission_blocked, tell the user Accessibility permission is required. If they report unsupported or unavailable, fall back to get_active_window, list_windows, capture_region, and related screenshot tools. Highlight_region remains intentionally unavailable on macOS 26+.`
 	}
 	return strings.TrimSpace(prompt)
 }
@@ -1927,6 +1934,16 @@ func combineInstructions(systemPrompt string) string {
 		return agentDeveloperPrompt()
 	}
 	return agentDeveloperPrompt() + "\n\nAdditional system prompt:\n" + systemPrompt
+}
+
+func newAgentOpenAIClient(settings AgentSettings) openai.Client {
+	options := []option.RequestOption{
+		option.WithAPIKey(settings.APIKey),
+	}
+	if baseURL := strings.TrimSpace(settings.BaseURL); baseURL != "" {
+		options = append(options, option.WithBaseURL(baseURL))
+	}
+	return openai.NewClient(options...)
 }
 
 type luaScriptRequest struct {
@@ -3122,14 +3139,12 @@ func keyboardKeysSchema() map[string]any {
 		"keys": arraySchema("List of keys such as [\"ctrl\", \"c\"] or [\"enter\"].", map[string]any{
 			"type": "string",
 		}),
-		"auto_delay_ms": integerSchema("Optional key delay in milliseconds."),
 	}, "keys")
 }
 
 func mouseButtonSchema() map[string]any {
 	return objectSchema(map[string]any{
-		"button":        enumSchema("Mouse button token.", "left", "middle", "right"),
-		"auto_delay_ms": integerSchema("Optional mouse delay in milliseconds."),
+		"button": enumSchema("Mouse button token.", "left", "middle", "right"),
 	}, "button")
 }
 

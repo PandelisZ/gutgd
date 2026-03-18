@@ -6,6 +6,7 @@ import { api } from '../lib/api'
 
 export default function AgentSettingsView() {
   const [apiKey, setAPIKey] = useState('')
+  const [baseURL, setBaseURL] = useState('')
   const [model, setModel] = useState('gpt-5.4')
   const [models, setModels] = useState([])
   const [reasoningEffort, setReasoningEffort] = useState('medium')
@@ -20,6 +21,7 @@ export default function AgentSettingsView() {
       try {
         const settings = await api.getAgentSettings()
         setAPIKey(settings.api_key || '')
+        setBaseURL(settings.base_url || '')
         setModel(settings.model || 'gpt-5.4')
         setReasoningEffort(settings.reasoning_effort || 'medium')
         setSystemPrompt(settings.system_prompt || '')
@@ -42,11 +44,13 @@ export default function AgentSettingsView() {
     try {
       const saved = await api.saveAgentSettings({
         api_key: apiKey,
+        base_url: baseURL,
         model,
         reasoning_effort: reasoningEffort,
         system_prompt: systemPrompt
       })
       setAPIKey(saved.api_key || '')
+      setBaseURL(saved.base_url || '')
       setModel(saved.model || 'gpt-5.4')
       setReasoningEffort(saved.reasoning_effort || 'medium')
       setSystemPrompt(saved.system_prompt || '')
@@ -68,6 +72,7 @@ export default function AgentSettingsView() {
       <div className="gutgd-list">
         <AgentSettingsPanel
           apiKey={apiKey}
+          baseURL={baseURL}
           model={model}
           models={models}
           reasoningEffort={reasoningEffort}
@@ -77,6 +82,7 @@ export default function AgentSettingsView() {
           loadingSettings={loadingSettings}
           savingSettings={savingSettings}
           onAPIKeyChange={setAPIKey}
+          onBaseURLChange={setBaseURL}
           onModelChange={setModel}
           onReasoningEffortChange={setReasoningEffort}
           onSystemPromptChange={setSystemPrompt}

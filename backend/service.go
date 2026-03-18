@@ -74,6 +74,11 @@ type ActionResult struct {
 	Message string `json:"message"`
 }
 
+const (
+	agentKeyboardAutoDelay = 0 * time.Millisecond
+	agentMouseAutoDelay    = 0 * time.Millisecond
+)
+
 func (s *Service) SetEventEmitter(emit func(string, any)) {
 	s.emitEvent = emit
 }
@@ -229,6 +234,10 @@ type KeyboardTextRequest struct {
 type KeyboardKeysRequest struct {
 	Keys        []string `json:"keys"`
 	AutoDelayMS int      `json:"auto_delay_ms"`
+}
+
+type KeyboardShortcutRequest struct {
+	Keys []string `json:"keys"`
 }
 
 type KeyboardSpecialKeyRequest struct {
@@ -842,7 +851,7 @@ func (s *Service) TypeText(req KeyboardTextRequest) (ActionResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.nut.Keyboard.SetAutoDelay(time.Duration(req.AutoDelayMS) * time.Millisecond)
+	s.nut.Keyboard.SetAutoDelay(agentKeyboardAutoDelay)
 	if err := s.nut.Keyboard.TypeText(ctx, req.Text); err != nil {
 		return ActionResult{}, err
 	}
@@ -865,6 +874,41 @@ func (s *Service) ReleaseKeys(req KeyboardKeysRequest) (ActionResult, error) {
 	return s.runKeyboardKeys(req, func(ctx context.Context, keys []shared.Key) error {
 		return s.nut.Keyboard.Release(ctx, keys...)
 	}, "Released")
+}
+
+func (s *Service) PressShortcut(req KeyboardShortcutRequest) (ActionResult, error) {
+	keys := make([]string, 0, len(req.Keys))
+	for _, item := range req.Keys {
+		trimmed := strings.TrimSpace(item)
+		if trimmed == "" {
+			continue
+		}
+		keys = append(keys, trimmed)
+	}
+	if len(keys) == 0 {
+		return ActionResult{}, fmt.Errorf("at least one key is required")
+	}
+
+	if runtime.GOOS != "darwin" {
+		return s.TapKeys(KeyboardKeysRequest{Keys: keys})
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	script, err := darwinShortcutScript(keys)
+	if err != nil {
+		return ActionResult{}, err
+	}
+	cmd := exec.CommandContext(ctx, "osascript", "-e", script)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		message := strings.TrimSpace(string(output))
+		if message == "" {
+			return ActionResult{}, err
+		}
+		return ActionResult{}, fmt.Errorf("%v: %s", err, message)
+	}
+	return ActionResult{OK: true, Message: fmt.Sprintf("Pressed shortcut %s", strings.Join(keys, " + "))}, nil
 }
 
 func (s *Service) PressSpecialKey(req KeyboardSpecialKeyRequest) (ActionResult, error) {
@@ -915,7 +959,7 @@ func (s *Service) SetMousePosition(req MouseMoveRequest) (ActionResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.nut.Mouse.SetAutoDelay(time.Duration(req.AutoDelayMS) * time.Millisecond)
+	s.nut.Mouse.SetAutoDelay(agentMouseAutoDelay)
 	if err := s.nut.Mouse.SetPosition(ctx, shared.Point{X: req.X, Y: req.Y}); err != nil {
 		return ActionResult{}, err
 	}
@@ -929,7 +973,7 @@ func (s *Service) MoveMouseLine(req MouseLineRequest) (ActionResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.nut.Mouse.SetAutoDelay(time.Duration(req.AutoDelayMS) * time.Millisecond)
+	s.nut.Mouse.SetAutoDelay(agentMouseAutoDelay)
 	if req.Speed > 0 {
 		s.nut.Mouse.SetSpeed(req.Speed)
 	}
@@ -974,7 +1018,7 @@ func (s *Service) ScrollMouse(req MouseScrollRequest) (ActionResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.nut.Mouse.SetAutoDelay(time.Duration(req.AutoDelayMS) * time.Millisecond)
+	s.nut.Mouse.SetAutoDelay(agentMouseAutoDelay)
 	switch strings.ToLower(strings.TrimSpace(req.Direction)) {
 	case "up":
 		if err := s.nut.Mouse.ScrollUp(ctx, req.Amount); err != nil {
@@ -1005,7 +1049,7 @@ func (s *Service) DragMouse(req MouseDragRequest) (ActionResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.nut.Mouse.SetAutoDelay(time.Duration(req.AutoDelayMS) * time.Millisecond)
+	s.nut.Mouse.SetAutoDelay(agentMouseAutoDelay)
 	if req.Speed > 0 {
 		s.nut.Mouse.SetSpeed(req.Speed)
 	}
@@ -1938,6 +1982,48 @@ end repeat
 end tell`, repeatCount, keyCode)
 }
 
+func darwinShortcutScript(keys []string) (string, error) {
+	if len(keys) == 0 {
+		return "", fmt.Errorf("at least one key is required")
+	}
+	modifiers := make([]string, 0, len(keys)-1)
+	nonModifiers := make([]string, 0, len(keys))
+	for _, item := range keys {
+		switch strings.ToLower(strings.TrimSpace(item)) {
+		case "cmd", "command", "meta", "super":
+			modifiers = append(modifiers, "command down")
+		case "ctrl", "control":
+			modifiers = append(modifiers, "control down")
+		case "alt", "option":
+			modifiers = append(modifiers, "option down")
+		case "shift":
+			modifiers = append(modifiers, "shift down")
+		default:
+			nonModifiers = append(nonModifiers, strings.ToLower(strings.TrimSpace(item)))
+		}
+	}
+	if len(nonModifiers) != 1 {
+		return "", fmt.Errorf("shortcut requires exactly one non-modifier key")
+	}
+
+	trigger := nonModifiers[0]
+	modifierClause := ""
+	if len(modifiers) > 0 {
+		modifierClause = " using {" + strings.Join(modifiers, ", ") + "}"
+	}
+	if len(trigger) == 1 {
+		return fmt.Sprintf(`tell application "System Events"
+	keystroke %q%s
+end tell`, trigger, modifierClause), nil
+	}
+	if keyCode, ok := darwinSpecialKeyCode(trigger); ok {
+		return fmt.Sprintf(`tell application "System Events"
+	key code %d%s
+end tell`, keyCode, modifierClause), nil
+	}
+	return "", fmt.Errorf("unsupported shortcut key %q", trigger)
+}
+
 func (s *Service) capturePath(fileName string) (string, error) {
 	if err := os.MkdirAll(s.artifactDir, 0o755); err != nil {
 		return "", err
@@ -1967,7 +2053,7 @@ func (s *Service) runKeyboardKeys(req KeyboardKeysRequest, run func(context.Cont
 		}
 		keys = append(keys, key)
 	}
-	s.nut.Keyboard.SetAutoDelay(time.Duration(req.AutoDelayMS) * time.Millisecond)
+	s.nut.Keyboard.SetAutoDelay(agentKeyboardAutoDelay)
 	if err := run(ctx, keys); err != nil {
 		return ActionResult{}, err
 	}
@@ -1985,7 +2071,7 @@ func (s *Service) runMouseButton(req MouseButtonRequest, run func(context.Contex
 	if err != nil {
 		return ActionResult{}, err
 	}
-	s.nut.Mouse.SetAutoDelay(time.Duration(req.AutoDelayMS) * time.Millisecond)
+	s.nut.Mouse.SetAutoDelay(agentMouseAutoDelay)
 	if err := run(ctx, button); err != nil {
 		return ActionResult{}, err
 	}

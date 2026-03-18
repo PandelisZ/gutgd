@@ -4,6 +4,7 @@ import Panel from './Panel'
 
 export default function AgentSettingsPanel({
   apiKey,
+  baseURL,
   model,
   models,
   reasoningEffort,
@@ -13,6 +14,7 @@ export default function AgentSettingsPanel({
   loadingSettings,
   savingSettings,
   onAPIKeyChange,
+  onBaseURLChange,
   onModelChange,
   onReasoningEffortChange,
   onSystemPromptChange,
@@ -33,16 +35,30 @@ export default function AgentSettingsPanel({
         <Field label="API key">
           <Input type="password" value={apiKey} onChange={(_, data) => onAPIKeyChange(data.value)} />
         </Field>
-        <Field label="Model">
-          <select className="gutgd-nativeSelect" value={model} onChange={(event) => onModelChange(event.target.value)}>
-            {models.map((item) => (
-              <option key={item.id} value={item.id}>{item.id}</option>
-            ))}
-            {!models.some((item) => item.id === model) ? <option value={model}>{model}</option> : null}
-          </select>
+        <Field label="Upstream provider URL">
+          <Input
+            placeholder="https://api.openai.com/v1"
+            value={baseURL}
+            onChange={(_, data) => onBaseURLChange(data.value)}
+          />
         </Field>
       </div>
       <div className="gutgd-grid2">
+        <Field label="Model">
+          <>
+            <Input
+              list="gutgd-agent-model-options"
+              placeholder="gpt-5.4"
+              value={model}
+              onChange={(_, data) => onModelChange(data.value)}
+            />
+            <datalist id="gutgd-agent-model-options">
+              {models.map((item) => (
+                <option key={item.id} value={item.id} />
+              ))}
+            </datalist>
+          </>
+        </Field>
         <Field label="Reasoning effort">
           <select className="gutgd-nativeSelect" value={reasoningEffort} onChange={(event) => onReasoningEffortChange(event.target.value)}>
             <option value="none">none</option>

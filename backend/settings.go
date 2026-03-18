@@ -9,6 +9,7 @@ import (
 
 func normalizeAgentSettings(settings AgentSettings) AgentSettings {
 	settings.APIKey = strings.TrimSpace(settings.APIKey)
+	settings.BaseURL = strings.TrimSpace(settings.BaseURL)
 	settings.Model = strings.TrimSpace(settings.Model)
 	if settings.Model == "" {
 		settings.Model = defaultAgentModel
