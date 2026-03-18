@@ -1,4 +1,4 @@
-import * as Service from '../../bindings/gutgd/backend/service.js'
+import * as Service from '../../bindings/github.com/PandelisZ/gutgd/backend/service.js'
 import { callWithRuntime } from './wails'
 
 export const api = {
