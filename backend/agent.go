@@ -70,8 +70,9 @@ Response style:
 
 Scaffold discipline:
 - Every turn, read the injected <agent_state> scaffold before choosing the next action.
-- Use its coordinate space, previous-step evaluation, compact memory, plan, todo list, next goal, and recent history to stay grounded in the current verified state.
-- When a continuation turn appears, continue from that scaffolded state and the latest verified evidence rather than restarting the task from zero.`
+- Use its coordinate space, previous-step evaluation, compact memory, plan, trajectory_plan, todo list, next goal, and recent history to stay grounded in the current verified state.
+- When a continuation turn appears, continue from that scaffolded state and the latest verified evidence rather than restarting the task from zero.
+- Treat the trajectory_plan as the short-horizon sequence for the next few grounded actions, and update your behavior based on new evidence after each step.`
 
 type AgentSettings struct {
 	APIKey          string `json:"api_key"`
@@ -285,6 +286,11 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 	if len(inputItems) == 0 {
 		return AgentChatResponse{}, fmt.Errorf("at least one non-empty user or assistant message is required")
 	}
+	if strings.TrimSpace(req.PreviousResponseID) == "" {
+		if desktopCaptureItems, ok := s.initialDesktopCaptureInputItems(); ok {
+			inputItems = append(desktopCaptureItems, inputItems...)
+		}
+	}
 
 	ctx := context.Background()
 	runID := strings.TrimSpace(req.ClientRunID)
@@ -356,6 +362,21 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 			finalMessage := strings.TrimSpace(response.OutputText())
 			if finalMessage == "" {
 				finalMessage = latestAssistantMessage(transcriptItems)
+			}
+			if finalMessage != "" && !lastAssistantMessageMatches(transcriptItems, finalMessage) {
+				assistantItem := AgentTranscriptItem{
+					Kind:    "message",
+					Role:    "assistant",
+					Content: finalMessage,
+				}
+				transcriptItems = append(transcriptItems, assistantItem)
+				assistantItemCopy := assistantItem
+				s.emitAgentProgress(runID, AgentProgressEvent{
+					RunID:  runID,
+					Kind:   "item",
+					Item:   &assistantItemCopy,
+					Status: "Assistant response received.",
+				})
 			}
 			s.emitAgentProgress(runID, AgentProgressEvent{
 				RunID:      runID,
@@ -999,9 +1020,8 @@ func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinate
 			Name:        "move_mouse_line",
 			Description: "Move the pointer along a straight path to a coordinate in the current coordinate space. In window space, x/y are relative to the selected window's top-left corner.",
 			Parameters: objectSchema(map[string]any{
-				"x":     integerSchema("Target x-coordinate."),
-				"y":     integerSchema("Target y-coordinate."),
-				"speed": integerSchema("Optional pointer speed."),
+				"x": integerSchema("Target x-coordinate."),
+				"y": integerSchema("Target y-coordinate."),
 			}, "x", "y"),
 			Run: func(raw string) (any, error) {
 				var payload MouseLineRequest
@@ -1095,7 +1115,6 @@ func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinate
 				"from_y": integerSchema("Start y-coordinate."),
 				"to_x":   integerSchema("Destination x-coordinate."),
 				"to_y":   integerSchema("Destination y-coordinate."),
-				"speed":  integerSchema("Optional pointer speed."),
 			}, "from_x", "from_y", "to_x", "to_y"),
 			Run: func(raw string) (any, error) {
 				var payload MouseDragRequest
@@ -1496,12 +1515,14 @@ Prefer the smallest number of tool calls needed to satisfy the request.
 Summarize what you did, include notable tool results, and be explicit when the native backend reports an unsupported capability.
 Do not treat GUT_ENABLE_LIVE_TESTS or the diagnostics field live_enabled as a blocker for normal gutgd actions. Those fields belong to the separate gut live-test harness. In gutgd, use the actual tool call result and the feature_status/capability availability to decide whether an action is possible.
 Before screenshot-guessing or blind clicking inside an app, prefer get_permission_readiness on macOS to see whether AX-backed reads are available. If accessibility metadata tools are available, prefer get_window_accessibility_snapshot for the active or target window when you need the full UI picture in one step. It returns markdown plus stable element IDs, screen regions, and suggested actions for the whole accessible window tree. After that, prefer act_on_window_accessibility_element with the returned snapshot_id and element_id instead of guessing coordinates again. Use get_focused_window_metadata, get_focused_element_metadata, and get_element_at_point_metadata as narrower fallbacks when you only need a small piece of that picture. When you need higher-level AX search and stable refs across a focused window or the frontmost application, use search_ax_elements with bounded criteria and an explicit scope, inspect the returned matches/ref/metadata, then use focus_ax_element or perform_ax_element_action on one chosen ref. If the backend reports permission_blocked, tell the user Accessibility permission is required instead of pretending the feature is unsupported. If it reports unsupported or unavailable, fall back to window discovery and screenshot tools.
+At the start of a brand-new conversation, the harness will usually attach an initial full-desktop screenshot automatically. Treat that initial full-desktop capture as the starting visual context before choosing the first grounded step.
 When entering plain language text, sentences, or paragraphs into an application, prefer type_text or type_text_block. When you need a real keyboard shortcut or key chord such as cmd+space, cmd+c, cmd+v, ctrl+l, or alt+tab, prefer tap_keys with the full key list in one call. When you need to submit a text field or move focus with a single non-text key, prefer press_special_key for enter, return, tab, escape, space, backspace, delete, or arrow keys. Use press_keys and release_keys only when you need custom key-down/key-up choreography across multiple steps.
 Keyboard and mouse action delays are managed by the harness for speed. Do not try to request custom typing or pointer delays unless a future tool explicitly exposes that capability again.
 After a tool returns a concrete result or structured error, do not repeat the same tool call with identical arguments unless the user explicitly asked for a retry or the environment changed.
 For visually precise clicks, do not guess repeatedly. First identify the relevant window with get_active_window or list_windows, then capture that window or a smaller region with capture_region. Fresh capture tool outputs are returned directly to the model as image context for the next step, so inspect that returned image first. For precise click grounding, prefer translate_image_point_to_screen with the delivered-image coordinates you chose from that fresh capture. If a target is small or ambiguous, capture a tighter region and verify again before clicking.
 Do not use full-screen capture for a precise click when the target is inside a single app window unless window discovery failed. Prefer smaller verification regions around the intended target after moving the pointer. Use get_active_window, list_windows, and capture_region to narrow the search area before clicking.
 Use get_coordinate_space to inspect the current coordinate mode. Use switch_to_active_window_space or switch_to_window_space to enter window space when you are working inside a single window. In window space, x/y coordinates for pointer movement, drag, color_at, and capture_region are relative to that window's top-left corner and the scaffolding translates them into real screen coordinates for you. Use switch_to_screen_space to go back to absolute screen coordinates.
+Pointer movement speed is managed by the harness for responsiveness. Do not try to micromanage movement speed; prefer direct set_mouse_position for instant jumps, move_mouse_line for graceful movement, and drag_mouse for ordinary drags.
 On macOS, screenshots may be retina-scaled, so image pixels are often 2x screen coordinates. The macOS menu bar is included in full-screen captures; do not add a separate menu-bar offset. Use the capture metadata and translate_image_point_to_screen to convert image coordinates back to absolute screen coordinates.
 capture_region returns the screen offset of the captured image and may include delivered-image scale plus original-versus-delivered size metadata. Fresh capture_region or capture_screen outputs are automatically attached back into the next model step as image context, so the default visual flow is capture first, then reason directly from that returned image. Use translate_image_point_to_screen for precise grounding from a fresh capture. Keep analyze_screenshot as a structured fallback when direct inspection is not enough; do not call analyze_screenshot immediately after a fresh capture unless you specifically need structured coordinate-aware interpretation that direct image reasoning cannot provide. Use load_image_for_context only for previously saved screenshots or arbitrary image paths that were not just captured. Be careful if you are currently in window space: translate_image_point_to_screen returns absolute screen coordinates, not window-relative coordinates. For small controls, rerun capture_region on a tighter area before the final click instead of reasoning from a broad capture.
 Use run_lua_script early when the next work is repetitive, geometric, or depends on loops, counters, interpolation, trigonometry, or other math. Prefer Lua over many separate tool calls for circles, arcs, grids, repeated drags, sweeps, or any computed sequence. Inside Lua, call tools.<tool_name>(args_table), inspect tool_schemas for arguments, and return a Lua table with any useful summary of what the script did. The Lua context is persistent across run_lua_script calls in the same conversation: top-level globals and helper functions remain available on later calls, so save reusable state there when it will help.
@@ -1521,6 +1542,44 @@ On macOS 26+, capture_screen and capture_region use the safe OS screenshot fallb
 	return strings.TrimSpace(prompt)
 }
 
+func (s *Service) initialDesktopCaptureInputItems() ([]responses.ResponseInputItemUnionParam, bool) {
+	capture, err := s.CaptureScreen(CaptureRequest{})
+	if err != nil {
+		return nil, false
+	}
+
+	text := strings.TrimSpace(fmt.Sprintf(
+		`Initial full-desktop capture for the start of this conversation.
+
+Use this as the initial visual context before choosing the first grounded interaction.
+
+%s`, captureInstructionText(capture),
+	))
+	dataURL, err := imageDataURL(capture.Path)
+	if err != nil {
+		return nil, false
+	}
+
+	return []responses.ResponseInputItemUnionParam{
+		responses.ResponseInputItemParamOfMessage(
+			responses.ResponseInputMessageContentListParam{
+				{
+					OfInputText: &responses.ResponseInputTextParam{
+						Text: text,
+					},
+				},
+				{
+					OfInputImage: &responses.ResponseInputImageParam{
+						ImageURL: openai.String(dataURL),
+						Detail:   responses.ResponseInputImageDetailOriginal,
+					},
+				},
+			},
+			responses.EasyInputMessageRoleUser,
+		),
+	}, true
+}
+
 func latestAssistantMessage(items []AgentTranscriptItem) string {
 	for index := len(items) - 1; index >= 0; index-- {
 		if items[index].Kind == "message" && items[index].Role == "assistant" {
@@ -1528,6 +1587,20 @@ func latestAssistantMessage(items []AgentTranscriptItem) string {
 		}
 	}
 	return ""
+}
+
+func lastAssistantMessageMatches(items []AgentTranscriptItem, value string) bool {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return false
+	}
+	for index := len(items) - 1; index >= 0; index-- {
+		if items[index].Kind != "message" || items[index].Role != "assistant" {
+			continue
+		}
+		return strings.TrimSpace(items[index].Content) == trimmed
+	}
+	return false
 }
 
 func agentToolStepSignature(calls []responses.ResponseFunctionToolCall) string {
@@ -2521,6 +2594,9 @@ func agentLoopScaffold(userRequest string, transcriptItems []AgentTranscriptItem
 		"<plan>",
 		agentExecutionPlan(userRequest, transcriptItems),
 		"</plan>",
+		"<trajectory_plan>",
+		agentTrajectoryPlan(userRequest, transcriptItems),
+		"</trajectory_plan>",
 		"<todo_list>",
 		agentTodoList(userRequest, transcriptItems),
 		"</todo_list>",
@@ -2633,6 +2709,32 @@ func agentExecutionPlan(userRequest string, items []AgentTranscriptItem) string 
 	}
 
 	return fmt.Sprintf("Objective: %s\n%s", request, strings.Join(steps, "\n"))
+}
+
+func agentTrajectoryPlan(userRequest string, items []AgentTranscriptItem) string {
+	request := strings.TrimSpace(userRequest)
+	if request == "" {
+		request = "complete the current desktop task"
+	}
+
+	steps := []string{
+		"1. Re-read the current scaffold and continue from the latest verified state.",
+		"2. Choose the next concrete target using the strongest available grounding path.",
+		"3. Execute one compact interaction batch that advances the request.",
+		"4. Re-check the visible or accessible outcome before deciding the next move.",
+	}
+
+	if hasWindowSpace(items) {
+		steps[1] = "2. Stay within the current window context and choose the next concrete target inside that verified scope."
+	}
+	if hasCaptureEvidence(items) {
+		steps[1] = "2. Use the current visual evidence or accessibility snapshot to pick the next concrete target."
+	}
+	if lastItemHasError(items) {
+		steps[2] = "3. Recover with a different grounded interaction batch rather than retrying the same failed step."
+	}
+
+	return fmt.Sprintf("Near-term trajectory for: %s\n%s", request, strings.Join(steps, "\n"))
 }
 
 func agentTodoList(userRequest string, items []AgentTranscriptItem) string {

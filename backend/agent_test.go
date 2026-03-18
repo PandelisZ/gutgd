@@ -715,6 +715,7 @@ func TestAgentLoopScaffoldIncludesMemoryAndGoal(t *testing.T) {
 		"<evaluation_previous_step>",
 		"<memory>",
 		"<plan>",
+		"<trajectory_plan>",
 		"<todo_list>",
 		"<next_goal>",
 		"<agent_history>",

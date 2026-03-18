@@ -75,8 +75,11 @@ type ActionResult struct {
 }
 
 const (
-	agentKeyboardAutoDelay = 0 * time.Millisecond
-	agentMouseAutoDelay    = 0 * time.Millisecond
+	agentKeyboardAutoDelay         = 0 * time.Millisecond
+	agentMouseAutoDelay            = 0 * time.Millisecond
+	agentMouseSpeed                = 5000
+	agentMouseInstantPathThreshold = 24
+	agentMouseMaxPathPoints        = 48
 )
 
 func (s *Service) SetEventEmitter(emit func(string, any)) {
@@ -974,12 +977,17 @@ func (s *Service) MoveMouseLine(req MouseLineRequest) (ActionResult, error) {
 	defer s.mu.Unlock()
 
 	s.nut.Mouse.SetAutoDelay(agentMouseAutoDelay)
-	if req.Speed > 0 {
-		s.nut.Mouse.SetSpeed(req.Speed)
-	}
+	s.nut.Mouse.SetSpeed(agentMouseSpeed)
 	path, err := s.nut.Mouse.StraightTo(ctx, shared.Point{X: req.X, Y: req.Y})
 	if err != nil {
 		return ActionResult{}, err
+	}
+	path = optimizeMousePath(path)
+	if len(path) <= 1 {
+		if err := s.nut.Mouse.SetPosition(ctx, shared.Point{X: req.X, Y: req.Y}); err != nil {
+			return ActionResult{}, err
+		}
+		return ActionResult{OK: true, Message: fmt.Sprintf("Moved pointer to (%d, %d)", req.X, req.Y)}, nil
 	}
 	if err := s.nut.Mouse.Move(ctx, path); err != nil {
 		return ActionResult{}, err
@@ -1050,9 +1058,7 @@ func (s *Service) DragMouse(req MouseDragRequest) (ActionResult, error) {
 	defer s.mu.Unlock()
 
 	s.nut.Mouse.SetAutoDelay(agentMouseAutoDelay)
-	if req.Speed > 0 {
-		s.nut.Mouse.SetSpeed(req.Speed)
-	}
+	s.nut.Mouse.SetSpeed(agentMouseSpeed)
 	path := []shared.Point{
 		{X: req.FromX, Y: req.FromY},
 		{X: req.ToX, Y: req.ToY},
@@ -2421,6 +2427,33 @@ func (s *Service) timeout(valueMS int, fallback time.Duration) time.Duration {
 
 func pointFromShared(point shared.Point) Point {
 	return Point{X: point.X, Y: point.Y}
+}
+
+func optimizeMousePath(path []shared.Point) []shared.Point {
+	switch {
+	case len(path) <= 1:
+		return path
+	case len(path) <= agentMouseInstantPathThreshold:
+		return path[len(path)-1:]
+	case len(path) <= agentMouseMaxPathPoints:
+		return path
+	default:
+		return sampleMousePath(path, agentMouseMaxPathPoints)
+	}
+}
+
+func sampleMousePath(path []shared.Point, maxPoints int) []shared.Point {
+	if len(path) <= maxPoints || maxPoints < 2 {
+		return path
+	}
+
+	sampled := make([]shared.Point, 0, maxPoints)
+	lastIndex := len(path) - 1
+	for index := 0; index < maxPoints; index++ {
+		position := int(math.Round(float64(index*lastIndex) / float64(maxPoints-1)))
+		sampled = append(sampled, path[position])
+	}
+	return sampled
 }
 
 func regionFromShared(region shared.Region) Region {

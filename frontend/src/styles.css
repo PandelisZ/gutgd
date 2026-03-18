@@ -588,6 +588,16 @@ select {
   justify-self: start;
 }
 
+.gutgd-chatMessage-reasoning {
+  border-color: rgba(255, 207, 139, 0.22);
+  background: rgba(255, 207, 139, 0.06);
+  justify-self: start;
+}
+
+.gutgd-chatMessage-reasoning code {
+  color: #ffcf8b;
+}
+
 .gutgd-chatMessage-continue {
   border-color: rgba(255, 207, 139, 0.28);
   background: rgba(255, 207, 139, 0.08);

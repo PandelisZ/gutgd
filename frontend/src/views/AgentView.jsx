@@ -22,6 +22,7 @@ export default function AgentView() {
   const transcriptRef = useRef(null)
   const transcriptEndRef = useRef(null)
   const pageEndRef = useRef(null)
+  const activeRunIDRef = useRef('')
 
   useEffect(() => {
     async function load() {
@@ -40,7 +41,7 @@ export default function AgentView() {
   useEffect(() => {
     const off = Events.On('agent_progress', (wailsEvent) => {
       const event = wailsEvent?.data || wailsEvent
-      if (!event || !event.run_id || event.run_id !== activeRunID) {
+      if (!event || !event.run_id || event.run_id !== activeRunIDRef.current) {
         return
       }
       if (event.status) {
@@ -57,7 +58,7 @@ export default function AgentView() {
     return () => {
       off?.()
     }
-  }, [activeRunID])
+  }, [])
 
   useLayoutEffect(() => {
     const transcript = transcriptRef.current
@@ -88,6 +89,7 @@ export default function AgentView() {
     setError('')
     setStatus('')
     const clientRunID = `agent-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    activeRunIDRef.current = clientRunID
     setActiveRunID(clientRunID)
 
     try {
@@ -98,7 +100,10 @@ export default function AgentView() {
       })
       const assistant = result.message || { role: 'assistant', content: '' }
       setMessages((current) => [...current, assistant])
-      setTimeline((current) => appendUniqueTimelineItems(current, result.items || []))
+      setTimeline((current) => appendUniqueTimelineItems(current, [
+        ...(result.items || []),
+        ...(assistant.content ? [{ kind: 'message', role: 'assistant', content: assistant.content }] : [])
+      ]))
       setResponseID(result.response_id || '')
       setStatus('Agent response ready.')
     } catch (nextError) {
@@ -195,7 +200,7 @@ export default function AgentView() {
 }
 
 function appendUniqueTimelineItems(current, incoming) {
-  const visibleIncoming = incoming.filter((item) => item.kind === 'message' || item.kind === 'tool_call' || item.kind === 'tool_output')
+  const visibleIncoming = incoming.filter((item) => item.kind === 'message' || item.kind === 'reasoning' || item.kind === 'tool_call' || item.kind === 'tool_output')
   const seen = new Set(current.map(timelineKey))
   const next = [...current]
   for (const item of visibleIncoming) {
@@ -225,6 +230,9 @@ function timelineKey(item) {
 function messageTone(item) {
   if (item.kind === 'tool_call' || item.kind === 'tool_output') {
     return 'tool'
+  }
+  if (item.kind === 'reasoning') {
+    return 'reasoning'
   }
   if (isContinueMessage(item)) {
     return 'continue'
@@ -269,6 +277,18 @@ function renderTranscriptItem(item) {
           </ul>
         ) : null}
         {renderRawPayload('Show raw result', raw)}
+      </>
+    )
+  }
+
+  if (item.kind === 'reasoning') {
+    return (
+      <>
+        <header>
+          <span>Thinking</span>
+          <code>reasoning</code>
+        </header>
+        <p>{item.content}</p>
       </>
     )
   }
