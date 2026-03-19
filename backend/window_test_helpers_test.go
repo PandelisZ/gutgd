@@ -254,5 +254,6 @@ func newTestServiceWithWindowsAccessibilityAndElements(accessibility provider.Ac
 		agentCoordinateStates:  make(map[string]agentCoordinateState),
 		accessibilitySnapshots: make(map[string]windowAccessibilitySnapshotCache),
 		agentLuaSessions:       make(map[string]*agentLuaSession),
+		agentTranscriptStates:  make(map[string][]AgentTranscriptItem),
 	}
 }

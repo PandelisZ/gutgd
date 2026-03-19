@@ -195,10 +195,16 @@ func TestAgentToolsExposeCoordinateSpaceControls(t *testing.T) {
 		"switch_to_window_space",
 		"switch_to_screen_space",
 		"translate_image_point_to_screen",
+		"capture_screen",
+		"capture_active_window",
+		"capture_window",
 	} {
 		if !hasAgentTool(tools, name) {
 			t.Fatalf("expected %s to be exposed", name)
 		}
+	}
+	if hasAgentTool(tools, "capture_region") {
+		t.Fatal("expected capture_region to be hidden from the agent tool surface")
 	}
 }
 
@@ -465,13 +471,10 @@ func TestAgentToolsMatchPlatformAvailability(t *testing.T) {
 	if !hasAgentTool(darwinTools, "press_special_key") {
 		t.Fatal("expected press_special_key to be exposed on darwin")
 	}
-	for _, exposed := range []string{"tap_keys", "press_keys", "release_keys"} {
-		if !hasAgentTool(darwinTools, exposed) {
-			t.Fatalf("expected %s to be exposed on darwin", exposed)
+	for _, exposed := range []string{"tap_keys", "press_keys", "release_keys", "highlight_region"} {
+		if hasAgentTool(darwinTools, exposed) {
+			t.Fatalf("expected %s to be hidden on darwin", exposed)
 		}
-	}
-	if hasAgentTool(darwinTools, "highlight_region") {
-		t.Fatalf("expected %s to be hidden on darwin", "highlight_region")
 	}
 
 	linuxTools := service.agentToolsForGOOS("linux")
@@ -490,7 +493,11 @@ func TestAgentDeveloperPromptForDarwinMentionsSafeFallbacks(t *testing.T) {
 	for _, needle := range []string{
 		"macOS 26+",
 		"capture_screen and capture_region use the safe OS screenshot fallback",
-		"Prefer tap_keys for real shortcuts like cmd+space",
+		"capture_active_window",
+		"capture_window",
+		"unsafe low-level keyboard tools tap_keys, press_keys, and release_keys are intentionally unavailable",
+		"press_special_key when it supports the needed key",
+		"safe higher-level app, AX, clipboard, and text-entry paths",
 		"get_permission_readiness",
 		"get_focused_window_metadata",
 		"get_focused_element_metadata",
@@ -514,7 +521,17 @@ func TestAgentDeveloperPromptForDarwinMentionsSafeFallbacks(t *testing.T) {
 		}
 	}
 
+	if strings.Contains(prompt, "Prefer tap_keys") || strings.Contains(prompt, "prefer tap_keys") {
+		t.Fatalf("expected darwin prompt to stop recommending tap_keys, got %q", prompt)
+	}
+	if strings.Contains(prompt, "Use press_keys and release_keys") {
+		t.Fatalf("expected darwin prompt to stop recommending press_keys/release_keys, got %q", prompt)
+	}
+
 	linuxPrompt := agentDeveloperPromptForGOOS("linux")
+	if !strings.Contains(linuxPrompt, "prefer tap_keys with the full key list in one call") {
+		t.Fatalf("expected non-darwin prompt to keep tap_keys guidance, got %q", linuxPrompt)
+	}
 	if strings.Contains(linuxPrompt, "intentionally unavailable on macOS 26+") {
 		t.Fatalf("expected non-darwin prompt to omit darwin-only warning, got %q", linuxPrompt)
 	}
@@ -674,6 +691,29 @@ func TestAgentCoordinateStatePersistsByResponseID(t *testing.T) {
 	got := service.loadAgentCoordinateState("resp_1")
 	if got.Mode != "window" || got.Window == nil || got.Window.Handle != 99 || got.Window.Region.Left != 50 || got.Window.Region.Top != 70 {
 		t.Fatalf("unexpected persisted coordinate state: %+v", got)
+	}
+}
+
+func TestAgentTranscriptStatePersistsByResponseID(t *testing.T) {
+	service := NewService()
+	items := []AgentTranscriptItem{
+		{Kind: "message", Role: "assistant", Content: "I found the target window."},
+		{Kind: "tool_output", Name: "capture_screen", Output: `{"path":"capture.png"}`},
+	}
+
+	service.saveAgentTranscriptState("resp_1", items)
+	got := service.loadAgentTranscriptState("resp_1")
+	if len(got) != 2 {
+		t.Fatalf("expected 2 transcript items, got %d", len(got))
+	}
+	if got[0].Content != "I found the target window." || got[1].Name != "capture_screen" {
+		t.Fatalf("unexpected transcript state: %+v", got)
+	}
+
+	got[0].Content = "mutated"
+	reloaded := service.loadAgentTranscriptState("resp_1")
+	if reloaded[0].Content != "I found the target window." {
+		t.Fatalf("expected transcript state to be copied defensively, got %+v", reloaded)
 	}
 }
 

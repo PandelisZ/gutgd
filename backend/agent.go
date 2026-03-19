@@ -271,6 +271,7 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 	client := newAgentOpenAIClient(settings)
 	coordinateState := s.loadAgentCoordinateState(req.PreviousResponseID)
 	luaSession := s.loadAgentLuaSession(req.PreviousResponseID)
+	priorTranscript := s.loadAgentTranscriptState(req.PreviousResponseID)
 	tools := s.agentToolsWithState(coordinateState, luaSession)
 	instructions := combineInstructions(settings.SystemPrompt)
 	userRequest := latestUserRequestText(req.Messages)
@@ -308,7 +309,7 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 		Model:        openai.ChatModel(settings.Model),
 		Store:        openai.Bool(true),
 		Input: responses.ResponseNewParamsInputUnion{
-			OfInputItemList: prependAgentScaffold(agentLoopScaffold(userRequest, nil, coordinateState), inputItems...),
+			OfInputItemList: prependAgentScaffold(agentLoopScaffold(userRequest, priorTranscript, coordinateState), inputItems...),
 		},
 		ParallelToolCalls: openai.Bool(true),
 		Include:           []responses.ResponseIncludable{responses.ResponseIncludableReasoningEncryptedContent},
@@ -386,6 +387,7 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 			})
 			s.saveAgentCoordinateState(response.ID, coordinateState)
 			s.saveAgentLuaSession(response.ID, luaSession)
+			s.saveAgentTranscriptState(response.ID, transcriptItems)
 			return AgentChatResponse{
 				Message: AgentChatMessage{
 					Role:    "assistant",
@@ -583,11 +585,13 @@ func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinate
 		state = newAgentCoordinateState()
 	}
 	captureScreenDescription := "Capture the full screen to a file under the artifacts directory."
-	captureRegionDescription := "Capture a screen region to a file under the artifacts directory."
+	captureActiveWindowDescription := "Capture the current active window to a file under the artifacts directory."
+	captureWindowDescription := "Capture a specific window by handle to a file under the artifacts directory."
 	pressSpecialKeyDescription := "Press a non-text special key such as enter, return, tab, escape, space, backspace, delete, or the arrow keys. Use this after typing when you need to submit a text field or move focus without relying on low-level key chord tools."
 	if goos == "darwin" {
 		captureScreenDescription = "Capture the full screen to a file under the artifacts directory. On macOS 26+, this uses the safe OS screenshot fallback instead of the hidden native screen.capture path."
-		captureRegionDescription = "Capture a screen region to a file under the artifacts directory. On macOS 26+, this uses the safe OS screenshot fallback instead of the hidden native screen.capture path."
+		captureActiveWindowDescription = "Capture the current active window to a file under the artifacts directory. On macOS 26+, this uses the safe OS screenshot fallback instead of the hidden native screen.capture path."
+		captureWindowDescription = "Capture a specific window by handle to a file under the artifacts directory. On macOS 26+, this uses the safe OS screenshot fallback instead of the hidden native screen.capture path."
 		pressSpecialKeyDescription = "Press a non-text special key such as enter, return, tab, escape, space, backspace, delete, or the arrow keys. On macOS 26+, this uses the safe special-key path instead of the hidden low-level key chord tools."
 	}
 
@@ -936,15 +940,15 @@ func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinate
 			Name:        "analyze_screenshot",
 			Description: "Analyze a previously captured screenshot or region and explain what is visible relative to the provided screen offset and scale. Treat this as a structured fallback tool, not the default path after a fresh capture. Use it only when you need explicit coordinate-aware interpretation that the main model cannot reliably infer from the returned image alone.",
 			Parameters: objectSchema(map[string]any{
-				"path":   stringSchema("Path returned by capture_screen or capture_region."),
+				"path":   stringSchema("Path returned by capture_screen, capture_active_window, or capture_window."),
 				"prompt": stringSchema("What to analyze in the screenshot, including the target you need to locate."),
 				"offset": objectSchema(map[string]any{
 					"x": integerSchema("Screen x-coordinate of the screenshot's top-left corner."),
 					"y": integerSchema("Screen y-coordinate of the screenshot's top-left corner."),
 				}, "x", "y"),
 				"scale": objectSchema(map[string]any{
-					"x": numberSchema("Horizontal screenshot pixel scale relative to screen coordinates. Use the scale returned by capture_screen or capture_region."),
-					"y": numberSchema("Vertical screenshot pixel scale relative to screen coordinates. Use the scale returned by capture_screen or capture_region."),
+					"x": numberSchema("Horizontal screenshot pixel scale relative to screen coordinates. Use the scale returned by a capture tool."),
+					"y": numberSchema("Vertical screenshot pixel scale relative to screen coordinates. Use the scale returned by a capture tool."),
 				}, "x", "y"),
 				"detail": enumSchema("Optional vision detail level.", "low", "high", "auto", "original"),
 			}, "path", "prompt", "offset"),
@@ -968,7 +972,7 @@ func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinate
 			Name:        "translate_image_point_to_screen",
 			Description: "Translate a point from a delivered screenshot image back to an absolute screen coordinate using the capture sidecar metadata. Prefer this for precise click grounding after a fresh capture. The returned screen point is always absolute screen space, even if the current tool coordinate mode is window space.",
 			Parameters: objectSchema(map[string]any{
-				"path": stringSchema("Path returned by capture_screen or capture_region."),
+				"path": stringSchema("Path returned by a capture tool."),
 				"x":    integerSchema("Delivered-image x-coordinate to translate."),
 				"y":    integerSchema("Delivered-image y-coordinate to translate."),
 			}, "path", "x", "y"),
@@ -1168,26 +1172,31 @@ func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinate
 			},
 		},
 		{
-			Name:        "capture_region",
-			Description: captureRegionDescription + " In window space, the region is relative to the selected window's top-left corner. Fresh captures are attached directly into the next model step; inspect the returned image first and use translate_image_point_to_screen for precise grounding when needed.",
-			Parameters:  captureRegionRequestSchema(),
+			Name:        "capture_active_window",
+			Description: captureActiveWindowDescription + " Use this instead of arbitrary cropped regions when the target is inside the focused app window. Fresh captures are attached directly into the next model step; inspect the returned image first and use translate_image_point_to_screen for precise grounding when needed.",
+			Parameters:  captureRequestSchema(),
 			Run: func(raw string) (any, error) {
-				var payload CaptureRegionRequest
+				var payload CaptureRequest
 				if err := decodeToolArgs(raw, &payload); err != nil {
 					return nil, err
 				}
-				requested := payload.Region
-				payload.Region = translateRegionToScreenSpace(payload.Region, *state)
-				result, err := s.CaptureRegion(payload)
+				return s.CaptureActiveWindow(payload)
+			},
+		},
+		{
+			Name:        "capture_window",
+			Description: captureWindowDescription + " Use this instead of arbitrary cropped regions when the target is inside one known window. Fresh captures are attached directly into the next model step; inspect the returned image first and use translate_image_point_to_screen for precise grounding when needed.",
+			Parameters:  captureWindowRequestSchema(),
+			Run: func(raw string) (any, error) {
+				var payload CaptureWindowRequest
+				if err := decodeToolArgs(raw, &payload); err != nil {
+					return nil, err
+				}
+				result, err := s.CaptureWindow(payload)
 				if err != nil {
 					return nil, err
 				}
-				return AgentTranslatedRegionResult{
-					CoordinateSpace: coordinateSpaceView(*state, "Capture region translated to screen space."),
-					Requested:       requested,
-					ScreenRegion:    payload.Region,
-					Result:          result,
-				}, nil
+				return result, nil
 			},
 		},
 		{
@@ -1414,44 +1423,46 @@ func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinate
 		},
 	}
 
-	tools = append(tools,
-		agentTool{
-			Name:        "tap_keys",
-			Description: "Tap one or more keys, optionally as a key chord. Prefer this for real keyboard shortcuts such as cmd+space, cmd+c, ctrl+l, or alt+tab.",
-			Parameters:  keyboardKeysSchema(),
-			Run: func(raw string) (any, error) {
-				var payload KeyboardKeysRequest
-				if err := decodeToolArgs(raw, &payload); err != nil {
-					return nil, err
-				}
-				return s.TapKeys(payload)
+	if goos != "darwin" {
+		tools = append(tools,
+			agentTool{
+				Name:        "tap_keys",
+				Description: "Tap one or more keys, optionally as a key chord. Prefer this for real keyboard shortcuts such as cmd+space, cmd+c, ctrl+l, or alt+tab.",
+				Parameters:  keyboardKeysSchema(),
+				Run: func(raw string) (any, error) {
+					var payload KeyboardKeysRequest
+					if err := decodeToolArgs(raw, &payload); err != nil {
+						return nil, err
+					}
+					return s.TapKeys(payload)
+				},
 			},
-		},
-		agentTool{
-			Name:        "press_keys",
-			Description: "Press one or more keys without releasing them. Use this only when you need custom key-down choreography across multiple steps.",
-			Parameters:  keyboardKeysSchema(),
-			Run: func(raw string) (any, error) {
-				var payload KeyboardKeysRequest
-				if err := decodeToolArgs(raw, &payload); err != nil {
-					return nil, err
-				}
-				return s.PressKeys(payload)
+			agentTool{
+				Name:        "press_keys",
+				Description: "Press one or more keys without releasing them. Use this only when you need custom key-down choreography across multiple steps.",
+				Parameters:  keyboardKeysSchema(),
+				Run: func(raw string) (any, error) {
+					var payload KeyboardKeysRequest
+					if err := decodeToolArgs(raw, &payload); err != nil {
+						return nil, err
+					}
+					return s.PressKeys(payload)
+				},
 			},
-		},
-		agentTool{
-			Name:        "release_keys",
-			Description: "Release one or more keys that were previously pressed with press_keys.",
-			Parameters:  keyboardKeysSchema(),
-			Run: func(raw string) (any, error) {
-				var payload KeyboardKeysRequest
-				if err := decodeToolArgs(raw, &payload); err != nil {
-					return nil, err
-				}
-				return s.ReleaseKeys(payload)
+			agentTool{
+				Name:        "release_keys",
+				Description: "Release one or more keys that were previously pressed with press_keys.",
+				Parameters:  keyboardKeysSchema(),
+				Run: func(raw string) (any, error) {
+					var payload KeyboardKeysRequest
+					if err := decodeToolArgs(raw, &payload); err != nil {
+						return nil, err
+					}
+					return s.ReleaseKeys(payload)
+				},
 			},
-		},
-	)
+		)
+	}
 
 	if goos != "darwin" {
 		tools = slices.DeleteFunc(tools, func(tool agentTool) bool {
@@ -1509,22 +1520,26 @@ func agentDeveloperPrompt() string {
 }
 
 func agentDeveloperPromptForGOOS(goos string) string {
+	keyboardGuidance := "When entering plain language text, sentences, or paragraphs into an application, prefer type_text or type_text_block. When you need a real keyboard shortcut or key chord such as cmd+space, cmd+c, cmd+v, ctrl+l, or alt+tab, prefer tap_keys with the full key list in one call. When you need to submit a text field or move focus with a single non-text key, prefer press_special_key for enter, return, tab, escape, space, backspace, delete, or arrow keys. Use press_keys and release_keys only when you need custom key-down/key-up choreography across multiple steps."
+	if goos == "darwin" {
+		keyboardGuidance = "When entering plain language text, sentences, or paragraphs into an application, prefer type_text or type_text_block. On darwin, the unsafe low-level keyboard tools tap_keys, press_keys, and release_keys are intentionally unavailable. For shortcuts or non-text keys, use only press_special_key when it supports the needed key, and otherwise prefer safe higher-level app, AX, clipboard, and text-entry paths instead of low-level key chords."
+	}
 	prompt := `You are a desktop automation assistant inside gutgd.
 Use the provided tools whenever the user asks you to inspect or control the desktop environment.
 Prefer the smallest number of tool calls needed to satisfy the request.
 Summarize what you did, include notable tool results, and be explicit when the native backend reports an unsupported capability.
 Do not treat GUT_ENABLE_LIVE_TESTS or the diagnostics field live_enabled as a blocker for normal gutgd actions. Those fields belong to the separate gut live-test harness. In gutgd, use the actual tool call result and the feature_status/capability availability to decide whether an action is possible.
-Before screenshot-guessing or blind clicking inside an app, prefer get_permission_readiness on macOS to see whether AX-backed reads are available. If accessibility metadata tools are available, prefer get_window_accessibility_snapshot for the active or target window when you need the full UI picture in one step. It returns markdown plus stable element IDs, screen regions, and suggested actions for the whole accessible window tree. After that, prefer act_on_window_accessibility_element with the returned snapshot_id and element_id instead of guessing coordinates again. Use get_focused_window_metadata, get_focused_element_metadata, and get_element_at_point_metadata as narrower fallbacks when you only need a small piece of that picture. When you need higher-level AX search and stable refs across a focused window or the frontmost application, use search_ax_elements with bounded criteria and an explicit scope, inspect the returned matches/ref/metadata, then use focus_ax_element or perform_ax_element_action on one chosen ref. If the backend reports permission_blocked, tell the user Accessibility permission is required instead of pretending the feature is unsupported. If it reports unsupported or unavailable, fall back to window discovery and screenshot tools.
+Before screenshot-guessing or blind clicking inside an app, prefer get_permission_readiness on macOS to see whether AX-backed reads are available. If accessibility metadata tools are available, prefer get_window_accessibility_snapshot for the active or target window when you need the full UI picture in one step. It returns markdown plus stable element IDs, screen regions, and suggested actions for the whole accessible window tree. After that, prefer act_on_window_accessibility_element with the returned snapshot_id and element_id instead of guessing coordinates again. Use get_focused_window_metadata, get_focused_element_metadata, and get_element_at_point_metadata as narrower fallbacks when you only need a small piece of that picture. When you need higher-level AX search and stable refs across a focused window or the frontmost application, use search_ax_elements with bounded criteria and an explicit scope, inspect the returned matches/ref/metadata, then use focus_ax_element or perform_ax_element_action on one chosen ref. If the backend reports permission_blocked, tell the user Accessibility permission is required instead of pretending the feature is unsupported. If it reports unsupported or unavailable, fall back to window discovery and whole-screen or whole-window screenshot tools.
 At the start of a brand-new conversation, the harness will usually attach an initial full-desktop screenshot automatically. Treat that initial full-desktop capture as the starting visual context before choosing the first grounded step.
-When entering plain language text, sentences, or paragraphs into an application, prefer type_text or type_text_block. When you need a real keyboard shortcut or key chord such as cmd+space, cmd+c, cmd+v, ctrl+l, or alt+tab, prefer tap_keys with the full key list in one call. When you need to submit a text field or move focus with a single non-text key, prefer press_special_key for enter, return, tab, escape, space, backspace, delete, or arrow keys. Use press_keys and release_keys only when you need custom key-down/key-up choreography across multiple steps.
+` + keyboardGuidance + `
 Keyboard and mouse action delays are managed by the harness for speed. Do not try to request custom typing or pointer delays unless a future tool explicitly exposes that capability again.
 After a tool returns a concrete result or structured error, do not repeat the same tool call with identical arguments unless the user explicitly asked for a retry or the environment changed.
-For visually precise clicks, do not guess repeatedly. First identify the relevant window with get_active_window or list_windows, then capture that window or a smaller region with capture_region. Fresh capture tool outputs are returned directly to the model as image context for the next step, so inspect that returned image first. For precise click grounding, prefer translate_image_point_to_screen with the delivered-image coordinates you chose from that fresh capture. If a target is small or ambiguous, capture a tighter region and verify again before clicking.
-Do not use full-screen capture for a precise click when the target is inside a single app window unless window discovery failed. Prefer smaller verification regions around the intended target after moving the pointer. Use get_active_window, list_windows, and capture_region to narrow the search area before clicking.
-Use get_coordinate_space to inspect the current coordinate mode. Use switch_to_active_window_space or switch_to_window_space to enter window space when you are working inside a single window. In window space, x/y coordinates for pointer movement, drag, color_at, and capture_region are relative to that window's top-left corner and the scaffolding translates them into real screen coordinates for you. Use switch_to_screen_space to go back to absolute screen coordinates.
+For visually precise clicks, do not guess repeatedly. First identify the relevant window with get_active_window or list_windows, then capture the whole active window with capture_active_window or capture a specific whole window with capture_window. Fresh capture tool outputs are returned directly into the next model step as image context, so inspect that returned image first. For precise click grounding, prefer translate_image_point_to_screen with the delivered-image coordinates you chose from that fresh capture. If a target is small or ambiguous, prefer accessibility snapshots or another whole-window capture after the UI changes instead of arbitrary cropped screenshot regions.
+Do not use full-screen capture for a precise click when the target is inside a single app window unless window discovery failed. Prefer whole-window captures with get_active_window, list_windows, capture_active_window, and capture_window before clicking.
+Use get_coordinate_space to inspect the current coordinate mode. Use switch_to_active_window_space or switch_to_window_space to enter window space when you are working inside a single window. In window space, x/y coordinates for pointer movement, drag, and color_at are relative to that window's top-left corner and the scaffolding translates them into real screen coordinates for you. Use switch_to_screen_space to go back to absolute screen coordinates.
 Pointer movement speed is managed by the harness for responsiveness. Do not try to micromanage movement speed; prefer direct set_mouse_position for instant jumps, move_mouse_line for graceful movement, and drag_mouse for ordinary drags.
 On macOS, screenshots may be retina-scaled, so image pixels are often 2x screen coordinates. The macOS menu bar is included in full-screen captures; do not add a separate menu-bar offset. Use the capture metadata and translate_image_point_to_screen to convert image coordinates back to absolute screen coordinates.
-capture_region returns the screen offset of the captured image and may include delivered-image scale plus original-versus-delivered size metadata. Fresh capture_region or capture_screen outputs are automatically attached back into the next model step as image context, so the default visual flow is capture first, then reason directly from that returned image. Use translate_image_point_to_screen for precise grounding from a fresh capture. Keep analyze_screenshot as a structured fallback when direct inspection is not enough; do not call analyze_screenshot immediately after a fresh capture unless you specifically need structured coordinate-aware interpretation that direct image reasoning cannot provide. Use load_image_for_context only for previously saved screenshots or arbitrary image paths that were not just captured. Be careful if you are currently in window space: translate_image_point_to_screen returns absolute screen coordinates, not window-relative coordinates. For small controls, rerun capture_region on a tighter area before the final click instead of reasoning from a broad capture.
+Whole-window captures and full-screen captures return the screen offset of the captured image and may include delivered-image scale plus original-versus-delivered size metadata. Fresh capture_screen, capture_active_window, or capture_window outputs are automatically attached back into the next model step as image context, so the default visual flow is capture first, then reason directly from that returned image. Use translate_image_point_to_screen for precise grounding from a fresh capture. Keep analyze_screenshot as a structured fallback when direct inspection is not enough; do not call analyze_screenshot immediately after a fresh capture unless you specifically need structured coordinate-aware interpretation that direct image reasoning cannot provide. Use load_image_for_context only for previously saved screenshots or arbitrary image paths that were not just captured. Be careful if you are currently in window space: translate_image_point_to_screen returns absolute screen coordinates, not window-relative coordinates.
 Use run_lua_script early when the next work is repetitive, geometric, or depends on loops, counters, interpolation, trigonometry, or other math. Prefer Lua over many separate tool calls for circles, arcs, grids, repeated drags, sweeps, or any computed sequence. Inside Lua, call tools.<tool_name>(args_table), inspect tool_schemas for arguments, and return a Lua table with any useful summary of what the script did. The Lua context is persistent across run_lua_script calls in the same conversation: top-level globals and helper functions remain available on later calls, so save reusable state there when it will help.
 When using run_lua_script for pointer drawing, do not behave like a dot matrix printer. Prefer smooth continuous movement: use geom.smooth_line, geom.arc, geom.circle, geom.simplify, and geom.round_points to build compact paths; use move_mouse_line between meaningful anchor points; and prefer drag_mouse for ordinary press-move-release motion. Avoid giant loops of tiny disconnected clicks or tiny jittering moves unless the task explicitly requires that pattern.
 If you use mouse_down in a plan or Lua script, make sure you also call mouse_up before finishing that sequence unless the task explicitly requires keeping the button held. Prefer drag_mouse for ordinary drags, and use mouse_down/mouse_up only when you need custom press-move-release choreography.
@@ -1537,7 +1552,7 @@ Inside run_lua_script, use the built-in geom helpers to reduce boilerplate for c
 Do not invent tool results.`
 	if goos == "darwin" {
 		prompt += `
-On macOS 26+, capture_screen and capture_region use the safe OS screenshot fallback instead of the hidden native screen.capture capability. Prefer tap_keys for real shortcuts like cmd+space and other key chords, and prefer press_special_key for single non-text keys like enter, tab, escape, space, backspace, delete, and arrows. Before screenshot-guessing or blind clicking inside an app, prefer get_permission_readiness to check whether AX-backed metadata reads and actions are available. When those reads are available, prefer get_window_accessibility_snapshot first for the focused or chosen window, then use act_on_window_accessibility_element for cached ID-based interactions. Use get_focused_window_metadata, get_focused_element_metadata, and get_element_at_point_metadata when you only need a narrow check. For explicit AX search/ref flows, use search_ax_elements with focused_window or frontmost_application scope, inspect the returned matches and refs, then use focus_ax_element or perform_ax_element_action on one chosen ref. Inspect first, then act: use raise_focused_window only after get_focused_window_metadata, use perform_focused_element_action only after get_focused_element_metadata, use perform_element_action_at_point or focus_element_at_point only after get_element_at_point_metadata, and use focus_ax_element or perform_ax_element_action only after search_ax_elements. If AX tools report permission_blocked, tell the user Accessibility permission is required. If they report unsupported or unavailable, fall back to get_active_window, list_windows, capture_region, and related screenshot tools. Highlight_region remains intentionally unavailable on macOS 26+.`
+On macOS 26+, capture_screen, capture_active_window, and capture_window use the safe OS screenshot fallback instead of the hidden native screen.capture capability. The unsafe low-level keyboard tools tap_keys, press_keys, and release_keys are intentionally unavailable on macOS 26+; for shortcuts and non-text key work, use press_special_key when it supports the needed key and otherwise prefer safe higher-level app, AX, clipboard, and text-entry paths instead of low-level key chords. Before screenshot-guessing or blind clicking inside an app, prefer get_permission_readiness to check whether AX-backed metadata reads and actions are available. When those reads are available, prefer get_window_accessibility_snapshot first for the focused or chosen window, then use act_on_window_accessibility_element for cached ID-based interactions. Use get_focused_window_metadata, get_focused_element_metadata, and get_element_at_point_metadata when you only need a narrow check. For explicit AX search/ref flows, use search_ax_elements with focused_window or frontmost_application scope, inspect the returned matches and refs, then use focus_ax_element or perform_ax_element_action on one chosen ref. Inspect first, then act: use raise_focused_window only after get_focused_window_metadata, use perform_focused_element_action only after get_focused_element_metadata, use perform_element_action_at_point or focus_element_at_point only after get_element_at_point_metadata, and use focus_ax_element or perform_ax_element_action only after search_ax_elements. If AX tools report permission_blocked, tell the user Accessibility permission is required. If they report unsupported or unavailable, fall back to get_active_window, list_windows, capture_active_window, capture_window, capture_screen, and related whole-window screenshot tools. Highlight_region remains intentionally unavailable on macOS 26+.`
 	}
 	return strings.TrimSpace(prompt)
 }
@@ -2995,7 +3010,7 @@ func simplifyPoints(points []luaPoint, minDistance float64) []map[string]any {
 
 func hasCaptureEvidence(items []AgentTranscriptItem) bool {
 	for _, item := range items {
-		if item.Kind == "tool_output" && (item.Name == "capture_region" || item.Name == "capture_screen" || item.Name == "load_image_for_context" || item.Name == "analyze_screenshot") {
+		if item.Kind == "tool_output" && (item.Name == "capture_screen" || item.Name == "capture_active_window" || item.Name == "capture_window" || item.Name == "capture_region" || item.Name == "load_image_for_context" || item.Name == "analyze_screenshot") {
 			return true
 		}
 	}
@@ -3157,6 +3172,33 @@ func (s *Service) saveAgentLuaSession(responseID string, session *agentLuaSessio
 	s.agentLuaSessions[key] = session
 }
 
+func (s *Service) loadAgentTranscriptState(previousResponseID string) []AgentTranscriptItem {
+	key := strings.TrimSpace(previousResponseID)
+	if key == "" {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := s.agentTranscriptStates[key]
+	if len(items) == 0 {
+		return nil
+	}
+	return append([]AgentTranscriptItem(nil), items...)
+}
+
+func (s *Service) saveAgentTranscriptState(responseID string, items []AgentTranscriptItem) {
+	key := strings.TrimSpace(responseID)
+	if key == "" {
+		return
+	}
+
+	next := append([]AgentTranscriptItem(nil), items...)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.agentTranscriptStates[key] = next
+}
+
 func accumulateAgentUsage(total *AgentUsage, response *responses.Response) {
 	if total == nil || response == nil {
 		return
@@ -3227,10 +3269,10 @@ func captureRequestSchema() map[string]any {
 	})
 }
 
-func captureRegionRequestSchema() map[string]any {
+func captureWindowRequestSchema() map[string]any {
 	return objectSchema(map[string]any{
+		"handle":           integerSchema("Window handle to capture."),
 		"file_name":        stringSchema("Optional file name for the capture."),
-		"region":           regionSchema("Region to capture."),
 		"max_image_width":  integerSchema("Optional maximum delivered image width in pixels. When positive, the capture is downscaled only if needed to fit within this bound while preserving aspect ratio."),
 		"max_image_height": integerSchema("Optional maximum delivered image height in pixels. When positive, the capture is downscaled only if needed to fit within this bound while preserving aspect ratio."),
 	})

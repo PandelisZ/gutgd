@@ -67,6 +67,7 @@ type Service struct {
 	agentCoordinateStates  map[string]agentCoordinateState
 	accessibilitySnapshots map[string]windowAccessibilitySnapshotCache
 	agentLuaSessions       map[string]*agentLuaSession
+	agentTranscriptStates  map[string][]AgentTranscriptItem
 }
 
 type ActionResult struct {
@@ -294,6 +295,13 @@ type CaptureRegionRequest struct {
 	MaxImageHeight int    `json:"max_image_height"`
 }
 
+type CaptureWindowRequest struct {
+	Handle         uint64 `json:"handle"`
+	FileName       string `json:"file_name"`
+	MaxImageWidth  int    `json:"max_image_width"`
+	MaxImageHeight int    `json:"max_image_height"`
+}
+
 type CaptureResult struct {
 	Path          string `json:"path"`
 	Message       string `json:"message"`
@@ -460,6 +468,7 @@ func NewService() *Service {
 		agentCoordinateStates:  make(map[string]agentCoordinateState),
 		accessibilitySnapshots: make(map[string]windowAccessibilitySnapshotCache),
 		agentLuaSessions:       make(map[string]*agentLuaSession),
+		agentTranscriptStates:  make(map[string][]AgentTranscriptItem),
 	}
 }
 
@@ -1113,6 +1122,32 @@ func (s *Service) CaptureRegion(req CaptureRegionRequest) (CaptureResult, error)
 	return s.capture(func(ctx context.Context, path string) (string, error) {
 		return s.nut.Screen.CaptureRegion(ctx, path, region)
 	}, req.FileName, Point{X: req.Region.Left, Y: req.Region.Top}, Size{Width: req.Region.Width, Height: req.Region.Height}, req.MaxImageWidth, req.MaxImageHeight)
+}
+
+func (s *Service) CaptureActiveWindow(req CaptureRequest) (CaptureResult, error) {
+	window, err := s.GetActiveWindow()
+	if err != nil {
+		return CaptureResult{}, err
+	}
+	return s.CaptureRegion(CaptureRegionRequest{
+		FileName:       req.FileName,
+		Region:         window.Region,
+		MaxImageWidth:  req.MaxImageWidth,
+		MaxImageHeight: req.MaxImageHeight,
+	})
+}
+
+func (s *Service) CaptureWindow(req CaptureWindowRequest) (CaptureResult, error) {
+	window, err := s.FindWindowByHandle(WindowHandleRequest{Handle: req.Handle})
+	if err != nil {
+		return CaptureResult{}, err
+	}
+	return s.CaptureRegion(CaptureRegionRequest{
+		FileName:       req.FileName,
+		Region:         window.Region,
+		MaxImageWidth:  req.MaxImageWidth,
+		MaxImageHeight: req.MaxImageHeight,
+	})
 }
 
 func (s *Service) ColorAt(req PointRequest) (ColorPointResult, error) {
