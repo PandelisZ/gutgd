@@ -471,10 +471,13 @@ func TestAgentToolsMatchPlatformAvailability(t *testing.T) {
 	if !hasAgentTool(darwinTools, "press_special_key") {
 		t.Fatal("expected press_special_key to be exposed on darwin")
 	}
-	for _, exposed := range []string{"tap_keys", "press_keys", "release_keys", "highlight_region"} {
-		if hasAgentTool(darwinTools, exposed) {
-			t.Fatalf("expected %s to be hidden on darwin", exposed)
+	for _, exposed := range []string{"tap_keys", "press_keys", "release_keys"} {
+		if !hasAgentTool(darwinTools, exposed) {
+			t.Fatalf("expected %s to be exposed on darwin", exposed)
 		}
+	}
+	if hasAgentTool(darwinTools, "highlight_region") {
+		t.Fatalf("expected %s to be hidden on darwin", "highlight_region")
 	}
 
 	linuxTools := service.agentToolsForGOOS("linux")
@@ -492,12 +495,11 @@ func TestAgentDeveloperPromptForDarwinMentionsSafeFallbacks(t *testing.T) {
 	prompt := agentDeveloperPromptForGOOS("darwin")
 	for _, needle := range []string{
 		"macOS 26+",
-		"capture_screen and capture_region use the safe OS screenshot fallback",
+		"capture_screen, capture_active_window, and capture_window use the safe OS screenshot fallback",
 		"capture_active_window",
 		"capture_window",
-		"unsafe low-level keyboard tools tap_keys, press_keys, and release_keys are intentionally unavailable",
-		"press_special_key when it supports the needed key",
-		"safe higher-level app, AX, clipboard, and text-entry paths",
+		"Prefer tap_keys for real shortcuts like cmd+space",
+		"press_special_key for single non-text keys",
 		"get_permission_readiness",
 		"get_focused_window_metadata",
 		"get_focused_element_metadata",
@@ -519,13 +521,6 @@ func TestAgentDeveloperPromptForDarwinMentionsSafeFallbacks(t *testing.T) {
 		if !strings.Contains(prompt, needle) {
 			t.Fatalf("expected darwin prompt to contain %q, got %q", needle, prompt)
 		}
-	}
-
-	if strings.Contains(prompt, "Prefer tap_keys") || strings.Contains(prompt, "prefer tap_keys") {
-		t.Fatalf("expected darwin prompt to stop recommending tap_keys, got %q", prompt)
-	}
-	if strings.Contains(prompt, "Use press_keys and release_keys") {
-		t.Fatalf("expected darwin prompt to stop recommending press_keys/release_keys, got %q", prompt)
 	}
 
 	linuxPrompt := agentDeveloperPromptForGOOS("linux")

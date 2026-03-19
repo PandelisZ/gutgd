@@ -165,11 +165,15 @@ func TestFeatureStatusesForGOOSDarwin(t *testing.T) {
 	if pressSpecialKey.Availability != string(common.AvailabilityAvailable) {
 		t.Fatalf("expected press_special_key to be available on darwin, got %+v", pressSpecialKey)
 	}
-	for _, id := range []string{"tap_keys", "press_keys", "release_keys", "highlight_region"} {
+	for _, id := range []string{"capture_active_window", "capture_window", "tap_keys", "press_keys", "release_keys"} {
 		status := requireFeatureStatus(t, statuses, id)
-		if status.Availability != string(common.AvailabilityUnavailable) || !strings.Contains(status.Reason, "intentionally hidden on macOS 26+") {
-			t.Fatalf("expected %s to be hidden on darwin, got %+v", id, status)
+		if status.Availability != string(common.AvailabilityAvailable) {
+			t.Fatalf("expected %s to be available on darwin, got %+v", id, status)
 		}
+	}
+	highlightRegion := requireFeatureStatus(t, statuses, "highlight_region")
+	if highlightRegion.Availability != string(common.AvailabilityUnavailable) || !strings.Contains(highlightRegion.Reason, "intentionally hidden on macOS 26+") {
+		t.Fatalf("expected highlight_region to stay hidden on darwin, got %+v", highlightRegion)
 	}
 	for _, test := range []struct {
 		id           string

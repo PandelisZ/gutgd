@@ -1423,46 +1423,44 @@ func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinate
 		},
 	}
 
-	if goos != "darwin" {
-		tools = append(tools,
-			agentTool{
-				Name:        "tap_keys",
-				Description: "Tap one or more keys, optionally as a key chord. Prefer this for real keyboard shortcuts such as cmd+space, cmd+c, ctrl+l, or alt+tab.",
-				Parameters:  keyboardKeysSchema(),
-				Run: func(raw string) (any, error) {
-					var payload KeyboardKeysRequest
-					if err := decodeToolArgs(raw, &payload); err != nil {
-						return nil, err
-					}
-					return s.TapKeys(payload)
-				},
+	tools = append(tools,
+		agentTool{
+			Name:        "tap_keys",
+			Description: "Tap one or more keys, optionally as a key chord. Prefer this for real keyboard shortcuts such as cmd+space, cmd+c, ctrl+l, or alt+tab.",
+			Parameters:  keyboardKeysSchema(),
+			Run: func(raw string) (any, error) {
+				var payload KeyboardKeysRequest
+				if err := decodeToolArgs(raw, &payload); err != nil {
+					return nil, err
+				}
+				return s.TapKeys(payload)
 			},
-			agentTool{
-				Name:        "press_keys",
-				Description: "Press one or more keys without releasing them. Use this only when you need custom key-down choreography across multiple steps.",
-				Parameters:  keyboardKeysSchema(),
-				Run: func(raw string) (any, error) {
-					var payload KeyboardKeysRequest
-					if err := decodeToolArgs(raw, &payload); err != nil {
-						return nil, err
-					}
-					return s.PressKeys(payload)
-				},
+		},
+		agentTool{
+			Name:        "press_keys",
+			Description: "Press one or more keys without releasing them. Use this only when you need custom key-down choreography across multiple steps.",
+			Parameters:  keyboardKeysSchema(),
+			Run: func(raw string) (any, error) {
+				var payload KeyboardKeysRequest
+				if err := decodeToolArgs(raw, &payload); err != nil {
+					return nil, err
+				}
+				return s.PressKeys(payload)
 			},
-			agentTool{
-				Name:        "release_keys",
-				Description: "Release one or more keys that were previously pressed with press_keys.",
-				Parameters:  keyboardKeysSchema(),
-				Run: func(raw string) (any, error) {
-					var payload KeyboardKeysRequest
-					if err := decodeToolArgs(raw, &payload); err != nil {
-						return nil, err
-					}
-					return s.ReleaseKeys(payload)
-				},
+		},
+		agentTool{
+			Name:        "release_keys",
+			Description: "Release one or more keys that were previously pressed with press_keys.",
+			Parameters:  keyboardKeysSchema(),
+			Run: func(raw string) (any, error) {
+				var payload KeyboardKeysRequest
+				if err := decodeToolArgs(raw, &payload); err != nil {
+					return nil, err
+				}
+				return s.ReleaseKeys(payload)
 			},
-		)
-	}
+		},
+	)
 
 	if goos != "darwin" {
 		tools = slices.DeleteFunc(tools, func(tool agentTool) bool {
@@ -1521,9 +1519,6 @@ func agentDeveloperPrompt() string {
 
 func agentDeveloperPromptForGOOS(goos string) string {
 	keyboardGuidance := "When entering plain language text, sentences, or paragraphs into an application, prefer type_text or type_text_block. When you need a real keyboard shortcut or key chord such as cmd+space, cmd+c, cmd+v, ctrl+l, or alt+tab, prefer tap_keys with the full key list in one call. When you need to submit a text field or move focus with a single non-text key, prefer press_special_key for enter, return, tab, escape, space, backspace, delete, or arrow keys. Use press_keys and release_keys only when you need custom key-down/key-up choreography across multiple steps."
-	if goos == "darwin" {
-		keyboardGuidance = "When entering plain language text, sentences, or paragraphs into an application, prefer type_text or type_text_block. On darwin, the unsafe low-level keyboard tools tap_keys, press_keys, and release_keys are intentionally unavailable. For shortcuts or non-text keys, use only press_special_key when it supports the needed key, and otherwise prefer safe higher-level app, AX, clipboard, and text-entry paths instead of low-level key chords."
-	}
 	prompt := `You are a desktop automation assistant inside gutgd.
 Use the provided tools whenever the user asks you to inspect or control the desktop environment.
 Prefer the smallest number of tool calls needed to satisfy the request.
@@ -1552,7 +1547,7 @@ Inside run_lua_script, use the built-in geom helpers to reduce boilerplate for c
 Do not invent tool results.`
 	if goos == "darwin" {
 		prompt += `
-On macOS 26+, capture_screen, capture_active_window, and capture_window use the safe OS screenshot fallback instead of the hidden native screen.capture capability. The unsafe low-level keyboard tools tap_keys, press_keys, and release_keys are intentionally unavailable on macOS 26+; for shortcuts and non-text key work, use press_special_key when it supports the needed key and otherwise prefer safe higher-level app, AX, clipboard, and text-entry paths instead of low-level key chords. Before screenshot-guessing or blind clicking inside an app, prefer get_permission_readiness to check whether AX-backed metadata reads and actions are available. When those reads are available, prefer get_window_accessibility_snapshot first for the focused or chosen window, then use act_on_window_accessibility_element for cached ID-based interactions. Use get_focused_window_metadata, get_focused_element_metadata, and get_element_at_point_metadata when you only need a narrow check. For explicit AX search/ref flows, use search_ax_elements with focused_window or frontmost_application scope, inspect the returned matches and refs, then use focus_ax_element or perform_ax_element_action on one chosen ref. Inspect first, then act: use raise_focused_window only after get_focused_window_metadata, use perform_focused_element_action only after get_focused_element_metadata, use perform_element_action_at_point or focus_element_at_point only after get_element_at_point_metadata, and use focus_ax_element or perform_ax_element_action only after search_ax_elements. If AX tools report permission_blocked, tell the user Accessibility permission is required. If they report unsupported or unavailable, fall back to get_active_window, list_windows, capture_active_window, capture_window, capture_screen, and related whole-window screenshot tools. Highlight_region remains intentionally unavailable on macOS 26+.`
+	On macOS 26+, capture_screen, capture_active_window, and capture_window use the safe OS screenshot fallback instead of the hidden native screen.capture capability. Prefer tap_keys for real shortcuts like cmd+space and other key chords, and prefer press_special_key for single non-text keys like enter, tab, escape, space, backspace, delete, and arrows. Use press_keys and release_keys only when you need custom key-down/key-up choreography across multiple steps. Before screenshot-guessing or blind clicking inside an app, prefer get_permission_readiness to check whether AX-backed metadata reads and actions are available. When those reads are available, prefer get_window_accessibility_snapshot first for the focused or chosen window, then use act_on_window_accessibility_element for cached ID-based interactions. Use get_focused_window_metadata, get_focused_element_metadata, and get_element_at_point_metadata when you only need a narrow check. For explicit AX search/ref flows, use search_ax_elements with focused_window or frontmost_application scope, inspect the returned matches and refs, then use focus_ax_element or perform_ax_element_action on one chosen ref. Inspect first, then act: use raise_focused_window only after get_focused_window_metadata, use perform_focused_element_action only after get_focused_element_metadata, use perform_element_action_at_point or focus_element_at_point only after get_element_at_point_metadata, and use focus_ax_element or perform_ax_element_action only after search_ax_elements. If AX tools report permission_blocked, tell the user Accessibility permission is required. If they report unsupported or unavailable, fall back to get_active_window, list_windows, capture_active_window, capture_window, capture_screen, and related whole-window screenshot tools. Highlight_region remains intentionally unavailable on macOS 26+.`
 	}
 	return strings.TrimSpace(prompt)
 }
