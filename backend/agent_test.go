@@ -37,6 +37,55 @@ func TestNormalizeAgentSettingsDefaultsModel(t *testing.T) {
 	}
 }
 
+func TestMergeAgentSettingsWithEnvironmentPrefersSavedValues(t *testing.T) {
+	merged := mergeAgentSettingsWithEnvironment(
+		AgentSettings{
+			APIKey:  "saved-key",
+			BaseURL: "https://saved.example/v1",
+		},
+		AgentSettings{
+			APIKey:  "env-key",
+			BaseURL: "https://env.example/v1",
+		},
+	)
+
+	if merged.APIKey != "saved-key" {
+		t.Fatalf("expected saved api key to win, got %q", merged.APIKey)
+	}
+	if merged.BaseURL != "https://saved.example/v1" {
+		t.Fatalf("expected saved base url to win, got %q", merged.BaseURL)
+	}
+}
+
+func TestMergeAgentSettingsWithEnvironmentFillsMissingValues(t *testing.T) {
+	merged := mergeAgentSettingsWithEnvironment(
+		AgentSettings{},
+		AgentSettings{
+			APIKey:  "env-key",
+			BaseURL: "https://env.example/v1",
+		},
+	)
+
+	if merged.APIKey != "env-key" {
+		t.Fatalf("expected env api key to be applied, got %q", merged.APIKey)
+	}
+	if merged.BaseURL != "https://env.example/v1" {
+		t.Fatalf("expected env base url to be applied, got %q", merged.BaseURL)
+	}
+}
+
+func TestAgentSettingsStatusReportsCredentialSource(t *testing.T) {
+	if status := agentSettingsStatus(AgentSettings{APIKey: "saved-key"}, AgentSettings{APIKey: "env-key"}); !status.HasAPIKey || status.APIKeySource != "saved" {
+		t.Fatalf("expected saved api key status, got %+v", status)
+	}
+	if status := agentSettingsStatus(AgentSettings{}, AgentSettings{APIKey: "env-key"}); !status.HasAPIKey || status.APIKeySource != "environment" {
+		t.Fatalf("expected environment api key status, got %+v", status)
+	}
+	if status := agentSettingsStatus(AgentSettings{}, AgentSettings{}); status.HasAPIKey || status.APIKeySource != "missing" {
+		t.Fatalf("expected missing api key status, got %+v", status)
+	}
+}
+
 func TestNormalizeAgentRole(t *testing.T) {
 	if got := normalizeAgentRole(" User "); got != "user" {
 		t.Fatalf("expected user role, got %q", got)
@@ -263,6 +312,25 @@ func TestAgentToolsExposeAccessibilityMetadataTools(t *testing.T) {
 	}
 }
 
+func TestSearchAXElementsToolSchemaIncludesWindowHandleScope(t *testing.T) {
+	service := NewService()
+	tool, ok := findAgentTool(service.agentToolsForGOOS("darwin"), "search_ax_elements")
+	if !ok {
+		t.Fatal("expected search_ax_elements to be exposed")
+	}
+
+	schemaJSON, err := json.Marshal(tool.Parameters)
+	if err != nil {
+		t.Fatalf("marshal tool schema: %v", err)
+	}
+	schema := string(schemaJSON)
+	for _, needle := range []string{`"window_handle"`, string(common.AXSearchScopeWindowHandle)} {
+		if !strings.Contains(schema, needle) {
+			t.Fatalf("expected search_ax_elements schema to contain %q, got %s", needle, schema)
+		}
+	}
+}
+
 func TestAgentToolsExposeRunLuaScript(t *testing.T) {
 	service := NewService()
 	tool, ok := findAgentTool(service.agentToolsForGOOS("linux"), "run_lua_script")
@@ -464,6 +532,74 @@ func TestSwitchToWindowSpaceRejectsUnknownHandle(t *testing.T) {
 	}
 }
 
+func TestAgentRawInputToolsFocusSelectedWindowInWindowSpace(t *testing.T) {
+	service := newTestServiceWithWindows(
+		WindowSummary{Handle: 1, Title: "Terminal", Region: Region{Left: 20, Top: 20, Width: 500, Height: 300}},
+		WindowSummary{Handle: 7, Title: "Slack", Region: Region{Left: 300, Top: 120, Width: 800, Height: 600}},
+	)
+	state := &agentCoordinateState{
+		Mode: "window",
+		Window: &WindowSummary{
+			Handle: 7,
+			Title:  "Slack",
+			Region: Region{Left: 300, Top: 120, Width: 800, Height: 600},
+		},
+	}
+	tools := service.agentToolsForGOOSWithState("darwin", state, nil)
+
+	typeTextTool, ok := findAgentTool(tools, "type_text")
+	if !ok {
+		t.Fatal("expected type_text to be exposed")
+	}
+	if _, err := typeTextTool.Run(`{"text":"hello"}`); err != nil {
+		t.Fatalf("type_text returned error: %v", err)
+	}
+
+	clickTool, ok := findAgentTool(tools, "click_mouse")
+	if !ok {
+		t.Fatal("expected click_mouse to be exposed")
+	}
+	if _, err := clickTool.Run(`{"button":"left"}`); err != nil {
+		t.Fatalf("click_mouse returned error: %v", err)
+	}
+
+	windowProvider, err := service.nut.Registry.Window()
+	if err != nil {
+		t.Fatalf("window provider: %v", err)
+	}
+	fakeWindows, ok := windowProvider.(*fakeBackendWindowProvider)
+	if !ok {
+		t.Fatalf("expected fake backend window provider, got %T", windowProvider)
+	}
+	if len(fakeWindows.focusCalls) != 1 || fakeWindows.focusCalls[0] != shared.WindowHandle(7) {
+		t.Fatalf("expected raw input to focus window 7 once, got %+v", fakeWindows.focusCalls)
+	}
+
+	keyboardProvider, err := service.nut.Registry.Keyboard()
+	if err != nil {
+		t.Fatalf("keyboard provider: %v", err)
+	}
+	fakeKeyboard, ok := keyboardProvider.(*fakeBackendKeyboardProvider)
+	if !ok {
+		t.Fatalf("expected fake backend keyboard provider, got %T", keyboardProvider)
+	}
+	if strings.Join(fakeKeyboard.typedText, "") != "hello" {
+		t.Fatalf("unexpected typed text: %+v", fakeKeyboard.typedText)
+	}
+
+	mouseProvider, err := service.nut.Registry.Mouse()
+	if err != nil {
+		t.Fatalf("mouse provider: %v", err)
+	}
+	fakeMouse, ok := mouseProvider.(*fakeBackendMouseProvider)
+	if !ok {
+		t.Fatalf("expected fake backend mouse provider, got %T", mouseProvider)
+	}
+	if len(fakeMouse.clicks) != 1 || fakeMouse.clicks[0] != shared.ButtonLeft {
+		t.Fatalf("unexpected mouse clicks: %+v", fakeMouse.clicks)
+	}
+}
+
 func TestAgentToolsMatchPlatformAvailability(t *testing.T) {
 	service := NewService()
 
@@ -507,7 +643,7 @@ func TestAgentDeveloperPromptForDarwinMentionsSafeFallbacks(t *testing.T) {
 		"search_ax_elements",
 		"focus_ax_element",
 		"perform_ax_element_action",
-		"focused_window or frontmost_application scope",
+		"window_handle scope",
 		"permission_blocked",
 		"Accessibility permission is required",
 		"Highlight_region remains intentionally unavailable",

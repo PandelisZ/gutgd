@@ -28,6 +28,56 @@ function mockResult(method) {
     case 'FindWindowByTitle':
     case 'WaitForWindowByTitle':
       return { handle: 101, title: 'Mock Notepad', region: { left: 80, top: 80, width: 900, height: 640 } }
+    case 'GetWindowAccessibilitySnapshot':
+      return {
+        snapshot_id: 'preview-snapshot',
+        window: { handle: 101, title: 'Mock Notepad', region: { left: 80, top: 80, width: 900, height: 640 } },
+        element_count: 2,
+        elements: [
+          {
+            id: 'el-001',
+            path: '0',
+            depth: 0,
+            role: 'AXWindow',
+            title: 'Mock Notepad',
+            enabled_known: true,
+            enabled: true,
+            focused_known: true,
+            focused: false,
+            screen_region: { left: 80, top: 80, width: 900, height: 640 },
+            ax_ref: { scope: 'window_handle', owner_pid: 123, window_handle: 101, path: [] },
+            ax_actions: [],
+            available_actions: ['focus']
+          },
+          {
+            id: 'el-002',
+            path: '0.1',
+            depth: 1,
+            role: 'AXButton',
+            title: 'Send',
+            enabled_known: true,
+            enabled: true,
+            focused_known: true,
+            focused: false,
+            screen_region: { left: 760, top: 660, width: 120, height: 40 },
+            ax_ref: { scope: 'window_handle', owner_pid: 123, window_handle: 101, path: [0] },
+            ax_actions: ['AXPress'],
+            available_actions: ['focus', 'click', 'double_click', 'right_click', 'show_menu']
+          }
+        ],
+        markdown: '# Mock accessibility snapshot',
+        message: 'Mock snapshot for preview mode'
+      }
+    case 'ActOnWindowAccessibilityElement':
+      return {
+        snapshot_id: 'preview-snapshot',
+        element_id: 'el-002',
+        action: 'click',
+        screen_point: { x: 820, y: 680 },
+        mode: 'background_ax',
+        result: { ok: true, message: 'Mock background AX action' },
+        message: 'Executed click on el-002 via background_ax.'
+      }
     case 'GetMousePosition':
       return { x: 640, y: 360 }
     case 'GetScreenSize':
@@ -44,10 +94,14 @@ function mockResult(method) {
       return { has_text: true }
     case 'GetAgentSettings':
       return { api_key: '', model: 'gpt-5.4', reasoning_effort: 'medium', system_prompt: '' }
+    case 'GetAgentSettingsStatus':
+      return { has_api_key: false, api_key_source: 'missing', has_base_url: false, base_url_source: 'default' }
     case 'ListAgentModels':
       return [{ id: 'gpt-5.4' }, { id: 'gpt-5-mini' }, { id: 'gpt-4.1' }]
     case 'SaveAgentSettings':
       return { api_key: '', model: 'gpt-5.4', reasoning_effort: 'medium', system_prompt: '' }
+    case 'PreviewAgentCursor':
+      return { ok: true, message: 'Previewing the pink agent cursor overlay on the desktop.' }
     case 'ChatWithAgent':
       return {
         message: {

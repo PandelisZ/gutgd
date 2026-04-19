@@ -11,10 +11,11 @@ import (
 )
 
 type fakeBackendWindowProvider struct {
-	windows []shared.WindowHandle
-	active  shared.WindowHandle
-	titles  map[shared.WindowHandle]string
-	regions map[shared.WindowHandle]shared.Region
+	windows    []shared.WindowHandle
+	active     shared.WindowHandle
+	titles     map[shared.WindowHandle]string
+	regions    map[shared.WindowHandle]shared.Region
+	focusCalls []shared.WindowHandle
 }
 
 func (f *fakeBackendWindowProvider) GetWindows(context.Context) ([]shared.WindowHandle, error) {
@@ -33,7 +34,9 @@ func (f *fakeBackendWindowProvider) GetWindowRegion(_ context.Context, handle sh
 	return f.regions[handle], nil
 }
 
-func (f *fakeBackendWindowProvider) FocusWindow(context.Context, shared.WindowHandle) (bool, error) {
+func (f *fakeBackendWindowProvider) FocusWindow(_ context.Context, handle shared.WindowHandle) (bool, error) {
+	f.focusCalls = append(f.focusCalls, handle)
+	f.active = handle
 	return true, nil
 }
 
@@ -55,6 +58,27 @@ func (f *fakeBackendWindowProvider) RestoreWindow(context.Context, shared.Window
 
 type fakeBackendScreenProvider struct {
 	size shared.Region
+}
+
+type fakeBackendMouseProvider struct {
+	position        shared.Point
+	positionErr     error
+	setPositions    []shared.Point
+	clicks          []shared.Button
+	doubleClicks    []shared.Button
+	scrollUp        []int
+	scrollDown      []int
+	scrollLeft      []int
+	scrollRight     []int
+	pressedButtons  []shared.Button
+	releasedButtons []shared.Button
+}
+
+type fakeBackendKeyboardProvider struct {
+	typedText    []string
+	tappedKeys   [][]shared.Key
+	pressedKeys  [][]shared.Key
+	releasedKeys [][]shared.Key
 }
 
 type fakeBackendAccessibilityProvider struct {
@@ -116,6 +140,83 @@ func (f *fakeBackendScreenProvider) ScreenHeight(context.Context) (int, error) {
 
 func (f *fakeBackendScreenProvider) ScreenSize(context.Context) (shared.Region, error) {
 	return f.size, nil
+}
+
+func (f *fakeBackendMouseProvider) SetMouseDelay(time.Duration) {}
+
+func (f *fakeBackendMouseProvider) SetMousePosition(_ context.Context, point shared.Point) error {
+	f.position = point
+	f.setPositions = append(f.setPositions, point)
+	return nil
+}
+
+func (f *fakeBackendMouseProvider) CurrentMousePosition(context.Context) (shared.Point, error) {
+	if f.positionErr != nil {
+		return shared.Point{}, f.positionErr
+	}
+	return f.position, nil
+}
+
+func (f *fakeBackendMouseProvider) Click(_ context.Context, button shared.Button) error {
+	f.clicks = append(f.clicks, button)
+	return nil
+}
+
+func (f *fakeBackendMouseProvider) DoubleClick(_ context.Context, button shared.Button) error {
+	f.doubleClicks = append(f.doubleClicks, button)
+	return nil
+}
+
+func (f *fakeBackendMouseProvider) ScrollUp(_ context.Context, amount int) error {
+	f.scrollUp = append(f.scrollUp, amount)
+	return nil
+}
+
+func (f *fakeBackendMouseProvider) ScrollDown(_ context.Context, amount int) error {
+	f.scrollDown = append(f.scrollDown, amount)
+	return nil
+}
+
+func (f *fakeBackendMouseProvider) ScrollLeft(_ context.Context, amount int) error {
+	f.scrollLeft = append(f.scrollLeft, amount)
+	return nil
+}
+
+func (f *fakeBackendMouseProvider) ScrollRight(_ context.Context, amount int) error {
+	f.scrollRight = append(f.scrollRight, amount)
+	return nil
+}
+
+func (f *fakeBackendMouseProvider) PressButton(_ context.Context, button shared.Button) error {
+	f.pressedButtons = append(f.pressedButtons, button)
+	return nil
+}
+
+func (f *fakeBackendMouseProvider) ReleaseButton(_ context.Context, button shared.Button) error {
+	f.releasedButtons = append(f.releasedButtons, button)
+	return nil
+}
+
+func (f *fakeBackendKeyboardProvider) SetKeyboardDelay(time.Duration) {}
+
+func (f *fakeBackendKeyboardProvider) Type(_ context.Context, input string) error {
+	f.typedText = append(f.typedText, input)
+	return nil
+}
+
+func (f *fakeBackendKeyboardProvider) Click(_ context.Context, keys ...shared.Key) error {
+	f.tappedKeys = append(f.tappedKeys, append([]shared.Key(nil), keys...))
+	return nil
+}
+
+func (f *fakeBackendKeyboardProvider) PressKey(_ context.Context, keys ...shared.Key) error {
+	f.pressedKeys = append(f.pressedKeys, append([]shared.Key(nil), keys...))
+	return nil
+}
+
+func (f *fakeBackendKeyboardProvider) ReleaseKey(_ context.Context, keys ...shared.Key) error {
+	f.releasedKeys = append(f.releasedKeys, append([]shared.Key(nil), keys...))
+	return nil
 }
 
 func (f *fakeBackendAccessibilityProvider) GetPermissionSnapshot(context.Context) (common.PermissionSnapshot, error) {
@@ -241,6 +342,8 @@ func newTestServiceWithWindowsAccessibilityAndElements(accessibility provider.Ac
 	}
 	registry.RegisterWindow(windowProvider)
 	registry.RegisterScreen(&fakeBackendScreenProvider{size: shared.Region{Left: 0, Top: 0, Width: 2560, Height: 1440}})
+	registry.RegisterMouse(&fakeBackendMouseProvider{})
+	registry.RegisterKeyboard(&fakeBackendKeyboardProvider{})
 	if accessibility != nil {
 		registry.RegisterAccessibility(accessibility)
 	}
@@ -252,6 +355,7 @@ func newTestServiceWithWindowsAccessibilityAndElements(accessibility provider.Ac
 		nut:                    gut.New(registry),
 		artifactDir:            ".",
 		agentCoordinateStates:  make(map[string]agentCoordinateState),
+		agentPointerStates:     make(map[string]agentPointerState),
 		accessibilitySnapshots: make(map[string]windowAccessibilitySnapshotCache),
 		agentLuaSessions:       make(map[string]*agentLuaSession),
 		agentTranscriptStates:  make(map[string][]AgentTranscriptItem),

@@ -3,8 +3,10 @@ import { callWithRuntime } from './wails'
 
 export const api = {
   getAgentSettings: () => callWithRuntime('GetAgentSettings', () => Service.GetAgentSettings()),
+  getAgentSettingsStatus: () => callWithRuntime('GetAgentSettingsStatus', () => Service.GetAgentSettingsStatus()),
   listAgentModels: () => callWithRuntime('ListAgentModels', () => Service.ListAgentModels()),
   saveAgentSettings: (payload) => callWithRuntime('SaveAgentSettings', () => Service.SaveAgentSettings(payload)),
+  previewAgentCursor: () => callWithRuntime('PreviewAgentCursor', () => Service.PreviewAgentCursor()),
   chatWithAgent: (payload) => callWithRuntime('ChatWithAgent', () => Service.ChatWithAgent(payload)),
   getDiagnostics: (mutable) => callWithRuntime('GetDiagnostics', () => Service.GetDiagnostics(mutable)),
   typeText: (payload) => callWithRuntime('TypeText', () => Service.TypeText(payload)),
@@ -25,6 +27,8 @@ export const api = {
   highlightRegion: (payload) => callWithRuntime('HighlightRegion', () => Service.HighlightRegion(payload)),
   listWindows: () => callWithRuntime('ListWindows', () => Service.ListWindows()),
   getActiveWindow: () => callWithRuntime('GetActiveWindow', () => Service.GetActiveWindow()),
+  getWindowAccessibilitySnapshot: (payload) => callWithRuntime('GetWindowAccessibilitySnapshot', () => Service.GetWindowAccessibilitySnapshot(payload)),
+  actOnWindowAccessibilityElement: (payload) => callWithRuntime('ActOnWindowAccessibilityElement', () => Service.ActOnWindowAccessibilityElement(payload)),
   focusWindow: (payload) => callWithRuntime('FocusWindow', () => Service.FocusWindow(payload)),
   minimizeWindow: (payload) => callWithRuntime('MinimizeWindow', () => Service.MinimizeWindow(payload)),
   restoreWindow: (payload) => callWithRuntime('RestoreWindow', () => Service.RestoreWindow(payload)),

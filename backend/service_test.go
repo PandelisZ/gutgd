@@ -365,7 +365,7 @@ func TestSearchAXElementMethods(t *testing.T) {
 	focused := false
 	accessibility := &fakeBackendAccessibilityProvider{
 		searchAXElementsMatches: []common.AXElementMatch{{
-			Ref: common.AXElementRef{Scope: common.AXSearchScopeFocusedWindow, OwnerPID: 77, WindowHandle: 42, Path: []int{1, 2}},
+			Ref: common.AXElementRef{Scope: common.AXSearchScopeWindowHandle, OwnerPID: 77, WindowHandle: 42, Path: []int{1, 2}},
 			Metadata: common.UIElementMetadata{
 				Role:       "AXButton",
 				Title:      "Save",
@@ -382,7 +382,8 @@ func TestSearchAXElementMethods(t *testing.T) {
 	service := newTestServiceWithWindowsAndAccessibility(accessibility)
 
 	searchResult, err := service.SearchAXElements(SearchAXElementsRequest{
-		Scope:               string(common.AXSearchScopeFocusedWindow),
+		Scope:               string(common.AXSearchScopeWindowHandle),
+		WindowHandle:        42,
 		Role:                "AXButton",
 		Subrole:             "",
 		TitleContains:       "Save",
@@ -397,17 +398,17 @@ func TestSearchAXElementMethods(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SearchAXElements returned error: %v", err)
 	}
-	if searchResult.Query.Scope != string(common.AXSearchScopeFocusedWindow) || searchResult.Query.Limit != 3 || searchResult.Query.MaxDepth != 4 {
+	if searchResult.Query.Scope != string(common.AXSearchScopeWindowHandle) || searchResult.Query.WindowHandle != 42 || searchResult.Query.Limit != 3 || searchResult.Query.MaxDepth != 4 {
 		t.Fatalf("unexpected search result query echo: %+v", searchResult.Query)
 	}
-	if accessibility.lastSearchAXQuery.Scope != common.AXSearchScopeFocusedWindow || accessibility.lastSearchAXQuery.Role != "AXButton" || accessibility.lastSearchAXQuery.Action != string(common.AXPress) {
+	if accessibility.lastSearchAXQuery.Scope != common.AXSearchScopeWindowHandle || accessibility.lastSearchAXQuery.WindowHandle != 42 || accessibility.lastSearchAXQuery.Role != "AXButton" || accessibility.lastSearchAXQuery.Action != string(common.AXPress) {
 		t.Fatalf("unexpected forwarded search query: %+v", accessibility.lastSearchAXQuery)
 	}
 	if len(searchResult.Matches) != 1 {
 		t.Fatalf("expected one AX search match, got %+v", searchResult.Matches)
 	}
 	match := searchResult.Matches[0]
-	if match.Ref.Scope != string(common.AXSearchScopeFocusedWindow) || match.Ref.OwnerPID != 77 || match.Ref.WindowHandle != 42 {
+	if match.Ref.Scope != string(common.AXSearchScopeWindowHandle) || match.Ref.OwnerPID != 77 || match.Ref.WindowHandle != 42 {
 		t.Fatalf("unexpected AX ref result: %+v", match.Ref)
 	}
 	if len(match.Ref.Path) != 2 || match.Ref.Path[0] != 1 || match.Ref.Path[1] != 2 {
@@ -449,11 +450,17 @@ func TestSearchAXElementValidation(t *testing.T) {
 	if _, err := service.SearchAXElements(SearchAXElementsRequest{Scope: string(common.AXSearchScopeFocusedWindow), Action: "AXDefinitelyUnsupportedSyntheticAction", Limit: 1, MaxDepth: 0}); err == nil {
 		t.Fatal("expected action validation error")
 	}
+	if _, err := service.SearchAXElements(SearchAXElementsRequest{Scope: string(common.AXSearchScopeWindowHandle), Limit: 1, MaxDepth: 0}); err == nil {
+		t.Fatal("expected window_handle validation error")
+	}
 	if _, err := service.FocusAXElement(FocusAXElementRequest{Ref: AXElementRefResult{Scope: string(common.AXSearchScopeFocusedWindow), Path: []int{-1}}}); err == nil {
 		t.Fatal("expected ref.path validation error for focus_ax_element")
 	}
 	if _, err := service.PerformAXElementAction(PerformAXElementActionOnRefRequest{Ref: AXElementRefResult{Scope: string(common.AXSearchScopeFocusedWindow), Path: []int{-1}}, Action: "AXPress"}); err == nil {
 		t.Fatal("expected ref.path validation error for perform_ax_element_action")
+	}
+	if _, err := service.FocusAXElement(FocusAXElementRequest{Ref: AXElementRefResult{Scope: string(common.AXSearchScopeWindowHandle)}}); err == nil {
+		t.Fatal("expected window_handle validation error for focus_ax_element")
 	}
 }
 
@@ -576,27 +583,50 @@ func TestCaptureMetadataRoundTrip(t *testing.T) {
 }
 
 func TestGetWindowAccessibilitySnapshotBuildsMarkdownInventory(t *testing.T) {
-	inspection := &fakeBackendElementInspectionProvider{
-		root: shared.WindowElement{
-			Role:  stringPtr("AXWindow"),
-			Title: stringPtr("Slack"),
-			Children: []shared.WindowElement{
-				{
-					Role:      stringPtr("AXButton"),
-					Title:     stringPtr("Send"),
-					IsEnabled: boolPtr(true),
-					Region:    &shared.Region{Left: 1000, Top: 700, Width: 32, Height: 24},
+	accessibility := &fakeBackendAccessibilityProvider{
+		searchAXElementsMatches: []common.AXElementMatch{
+			{
+				Ref: common.AXElementRef{Scope: common.AXSearchScopeWindowHandle, OwnerPID: 77, WindowHandle: 7, Path: []int{}},
+				Metadata: common.UIElementMetadata{
+					Role:       "AXWindow",
+					Title:      "Slack",
+					Enabled:    true,
+					Frame:      common.Rect{X: 300, Y: 120, Width: 800, Height: 600},
+					FrameKnown: true,
 				},
-				{
-					Role:      stringPtr("AXTextField"),
-					Value:     stringPtr("Draft message"),
-					IsFocused: boolPtr(true),
-					Region:    &shared.Region{Left: 400, Top: 680, Width: 560, Height: 42},
+				Depth: 0,
+			},
+			{
+				Ref: common.AXElementRef{Scope: common.AXSearchScopeWindowHandle, OwnerPID: 77, WindowHandle: 7, Path: []int{0}},
+				Metadata: common.UIElementMetadata{
+					Role:       "AXButton",
+					Title:      "Send",
+					Enabled:    true,
+					Frame:      common.Rect{X: 1000, Y: 700, Width: 32, Height: 24},
+					FrameKnown: true,
+					Actions:    []string{string(common.AXPress)},
 				},
+				Depth:            1,
+				ActionPoint:      common.Point{X: 1016, Y: 712},
+				ActionPointKnown: true,
+			},
+			{
+				Ref: common.AXElementRef{Scope: common.AXSearchScopeWindowHandle, OwnerPID: 77, WindowHandle: 7, Path: []int{1}},
+				Metadata: common.UIElementMetadata{
+					Role:       "AXTextField",
+					Value:      "Draft message",
+					Focused:    true,
+					Enabled:    true,
+					Frame:      common.Rect{X: 400, Y: 680, Width: 560, Height: 42},
+					FrameKnown: true,
+				},
+				Depth:            1,
+				ActionPoint:      common.Point{X: 680, Y: 701},
+				ActionPointKnown: true,
 			},
 		},
 	}
-	service := newTestServiceWithWindowsAccessibilityAndElements(nil, inspection, WindowSummary{
+	service := newTestServiceWithWindowsAndAccessibility(accessibility, WindowSummary{
 		Handle: 7,
 		Title:  "Slack",
 		Region: Region{Left: 300, Top: 120, Width: 800, Height: 600},
@@ -612,14 +642,25 @@ func TestGetWindowAccessibilitySnapshotBuildsMarkdownInventory(t *testing.T) {
 	if result.ElementCount != 3 {
 		t.Fatalf("expected 3 flattened elements, got %d", result.ElementCount)
 	}
-	if inspection.lastHandle != shared.WindowHandle(7) {
-		t.Fatalf("expected inspection provider to receive handle 7, got %v", inspection.lastHandle)
+	if accessibility.lastSearchAXQuery.Scope != common.AXSearchScopeWindowHandle || accessibility.lastSearchAXQuery.WindowHandle != common.WindowHandle(7) {
+		t.Fatalf("expected window-handle scoped AX query, got %+v", accessibility.lastSearchAXQuery)
 	}
 	if !strings.Contains(result.Markdown, "Window accessibility snapshot") || !strings.Contains(result.Markdown, "`el-002`") || !strings.Contains(result.Markdown, "Send") {
 		t.Fatalf("unexpected markdown snapshot:\n%s", result.Markdown)
 	}
-	if len(result.Elements) < 2 || result.Elements[1].ID == "" || result.Elements[1].ScreenRegion == nil {
+	if len(result.Elements) < 2 || result.Elements[1].ID == "" || result.Elements[1].ScreenRegion == nil || result.Elements[1].AXRef == nil {
 		t.Fatalf("unexpected element list: %#v", result.Elements)
+	}
+	windowProvider, err := service.nut.Registry.Window()
+	if err != nil {
+		t.Fatalf("expected window provider: %v", err)
+	}
+	fakeWindows, ok := windowProvider.(*fakeBackendWindowProvider)
+	if !ok {
+		t.Fatalf("expected fake backend window provider, got %T", windowProvider)
+	}
+	if len(fakeWindows.focusCalls) != 0 {
+		t.Fatalf("expected snapshot to avoid focusing the window, got %+v", fakeWindows.focusCalls)
 	}
 }
 
@@ -631,20 +672,31 @@ func TestNewServiceRegistersElementInspectionProvider(t *testing.T) {
 }
 
 func TestActOnWindowAccessibilityElementFocusUsesCachedScreenRegion(t *testing.T) {
-	accessibility := &fakeBackendAccessibilityProvider{}
-	inspection := &fakeBackendElementInspectionProvider{
-		root: shared.WindowElement{
-			Role: stringPtr("AXWindow"),
-			Children: []shared.WindowElement{
-				{
-					Role:   stringPtr("AXButton"),
-					Title:  stringPtr("Send"),
-					Region: &shared.Region{Left: 1000, Top: 700, Width: 32, Height: 24},
+	accessibility := &fakeBackendAccessibilityProvider{
+		searchAXElementsMatches: []common.AXElementMatch{
+			{
+				Ref: common.AXElementRef{Scope: common.AXSearchScopeWindowHandle, OwnerPID: 77, WindowHandle: 7, Path: []int{}},
+				Metadata: common.UIElementMetadata{
+					Role:       "AXWindow",
+					Title:      "Slack",
+					Enabled:    true,
+					Frame:      common.Rect{X: 300, Y: 120, Width: 800, Height: 600},
+					FrameKnown: true,
+				},
+			},
+			{
+				Ref: common.AXElementRef{Scope: common.AXSearchScopeWindowHandle, OwnerPID: 77, WindowHandle: 7, Path: []int{0}},
+				Metadata: common.UIElementMetadata{
+					Role:       "AXButton",
+					Title:      "Send",
+					Enabled:    true,
+					Frame:      common.Rect{X: 1000, Y: 700, Width: 32, Height: 24},
+					FrameKnown: true,
 				},
 			},
 		},
 	}
-	service := newTestServiceWithWindowsAccessibilityAndElements(accessibility, inspection, WindowSummary{
+	service := newTestServiceWithWindowsAndAccessibility(accessibility, WindowSummary{
 		Handle: 7,
 		Title:  "Slack",
 		Region: Region{Left: 300, Top: 120, Width: 800, Height: 600},
@@ -666,8 +718,71 @@ func TestActOnWindowAccessibilityElementFocusUsesCachedScreenRegion(t *testing.T
 	if result.ScreenPoint != (Point{X: 1016, Y: 712}) {
 		t.Fatalf("unexpected action screen point: %+v", result.ScreenPoint)
 	}
-	if accessibility.lastFocusElementAtPoint != (shared.Point{X: 1016, Y: 712}) {
-		t.Fatalf("unexpected focused point: %+v", accessibility.lastFocusElementAtPoint)
+	if result.Mode != "background_ax" {
+		t.Fatalf("expected background_ax mode, got %+v", result)
+	}
+	if accessibility.lastFocusAXRef.WindowHandle != 7 || accessibility.lastFocusAXRef.Scope != common.AXSearchScopeWindowHandle {
+		t.Fatalf("unexpected AX focus ref: %+v", accessibility.lastFocusAXRef)
+	}
+}
+
+func TestActOnWindowAccessibilityElementFallsBackToForegroundRawClickWhenAXActionMissing(t *testing.T) {
+	accessibility := &fakeBackendAccessibilityProvider{
+		searchAXElementsMatches: []common.AXElementMatch{
+			{
+				Ref: common.AXElementRef{Scope: common.AXSearchScopeWindowHandle, OwnerPID: 77, WindowHandle: 7, Path: []int{}},
+				Metadata: common.UIElementMetadata{
+					Role:       "AXWindow",
+					Title:      "Slack",
+					Enabled:    true,
+					Frame:      common.Rect{X: 300, Y: 120, Width: 800, Height: 600},
+					FrameKnown: true,
+				},
+			},
+			{
+				Ref: common.AXElementRef{Scope: common.AXSearchScopeWindowHandle, OwnerPID: 77, WindowHandle: 7, Path: []int{0}},
+				Metadata: common.UIElementMetadata{
+					Role:       "AXButton",
+					Title:      "Send",
+					Enabled:    true,
+					Frame:      common.Rect{X: 1000, Y: 700, Width: 32, Height: 24},
+					FrameKnown: true,
+				},
+			},
+		},
+	}
+	service := newTestServiceWithWindowsAndAccessibility(accessibility,
+		WindowSummary{Handle: 1, Title: "Terminal", Region: Region{Left: 20, Top: 20, Width: 500, Height: 300}},
+		WindowSummary{Handle: 7, Title: "Slack", Region: Region{Left: 300, Top: 120, Width: 800, Height: 600}},
+	)
+
+	snapshot, err := service.GetWindowAccessibilitySnapshot(WindowAccessibilitySnapshotRequest{Handle: 7})
+	if err != nil {
+		t.Fatalf("GetWindowAccessibilitySnapshot returned error: %v", err)
+	}
+
+	result, err := service.ActOnWindowAccessibilityElement(WindowAccessibilityElementActionRequest{
+		SnapshotID: snapshot.SnapshotID,
+		ElementID:  snapshot.Elements[1].ID,
+		Action:     "click",
+	})
+	if err != nil {
+		t.Fatalf("ActOnWindowAccessibilityElement returned error: %v", err)
+	}
+	if result.Mode != "foreground_fallback" {
+		t.Fatalf("expected foreground_fallback mode, got %+v", result)
+	}
+
+	windowProvider, err := service.nut.Registry.Window()
+	if err != nil {
+		t.Fatalf("expected window provider: %v", err)
+	}
+	fakeWindows, ok := windowProvider.(*fakeBackendWindowProvider)
+	if !ok {
+		t.Fatalf("expected fake backend window provider, got %T", windowProvider)
+	}
+	if len(fakeWindows.focusCalls) != 1 || fakeWindows.focusCalls[0] != shared.WindowHandle(7) {
+		t.Fatalf("expected raw click fallback to focus window 7 first, got %+v", fakeWindows.focusCalls)
 	}
 }
 

@@ -16,7 +16,9 @@ export default function AgentView() {
   const [activeRunID, setActiveRunID] = useState('')
   const [status, setStatus] = useState('')
   const [loadingSettings, setLoadingSettings] = useState(true)
-  const [savingSettings, setSavingSettings] = useState(false)
+  const [hasAPIKey, setHasAPIKey] = useState(false)
+  const [apiKeySource, setAPIKeySource] = useState('missing')
+  const [previewingCursor, setPreviewingCursor] = useState(false)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
   const transcriptRef = useRef(null)
@@ -27,7 +29,9 @@ export default function AgentView() {
   useEffect(() => {
     async function load() {
       try {
-        await api.getAgentSettings()
+        const settingsStatus = await api.getAgentSettingsStatus()
+        setHasAPIKey(Boolean(settingsStatus?.has_api_key))
+        setAPIKeySource(settingsStatus?.api_key_source || 'missing')
       } catch (nextError) {
         setError(nextError.message || String(nextError))
       } finally {
@@ -113,6 +117,19 @@ export default function AgentView() {
     }
   }
 
+  async function previewAgentCursor() {
+    setPreviewingCursor(true)
+    setError('')
+    try {
+      const result = await api.previewAgentCursor()
+      setStatus(result?.message || 'Previewing the pink agent cursor overlay on the desktop.')
+    } catch (nextError) {
+      setError(nextError.message || String(nextError))
+    } finally {
+      setPreviewingCursor(false)
+    }
+  }
+
   return (
     <>
       <PageHeader
@@ -137,6 +154,10 @@ export default function AgentView() {
               <span className={`gutgd-agentChip ${sending ? 'gutgd-agentChip-live' : ''}`}>
                 <strong>State</strong>
                 <span>{sending ? 'Running' : loadingSettings ? 'Loading' : 'Ready'}</span>
+              </span>
+              <span className="gutgd-agentChip">
+                <strong>Credentials</strong>
+                <span>{credentialSourceLabel(apiKeySource)}</span>
               </span>
               {status ? <span className="gutgd-agentChip"><strong>Status</strong><span>{status}</span></span> : null}
             </div>
@@ -165,12 +186,17 @@ export default function AgentView() {
               <div className="gutgd-chatComposerHeader">
                 <div>
                   <strong>Compose</strong>
-                  <p>Be specific about the app, target region, and the outcome you want.</p>
+                  <p>{composeHelperText(hasAPIKey, apiKeySource)}</p>
                 </div>
                 <div className="gutgd-rowActions">
-                  <Button appearance="primary" onClick={sendMessage} disabled={sending || loadingSettings}>
-                    {sending ? 'Sending…' : 'Send'}
+                  <Button appearance="primary" onClick={sendMessage} disabled={sending || loadingSettings || !hasAPIKey}>
+                    {sending ? 'Sending…' : hasAPIKey ? 'Send' : 'API key required'}
                   </Button>
+                  {!hasAPIKey ? (
+                    <Button onClick={previewAgentCursor} disabled={previewingCursor || loadingSettings}>
+                      {previewingCursor ? 'Previewing…' : 'Preview agent cursor'}
+                    </Button>
+                  ) : null}
                   <Button onClick={() => {
                     setMessages([])
                     setTimeline([])
@@ -467,4 +493,25 @@ function isMaxDepthAssistantMessage(item) {
 
 function isContinueMessage(item) {
   return item?.kind === 'message' && item?.role === 'user' && item?.content === 'continue'
+}
+
+function credentialSourceLabel(value) {
+  switch (value) {
+    case 'saved':
+      return 'Saved locally'
+    case 'environment':
+      return 'OPENAI_API_KEY env'
+    default:
+      return 'Missing'
+  }
+}
+
+function composeHelperText(hasAPIKey, apiKeySource) {
+  if (apiKeySource === 'environment') {
+    return 'Using OPENAI_API_KEY from the environment. You can chat immediately or save a local key in settings if you want this profile to persist its own credentials.'
+  }
+  if (hasAPIKey) {
+    return 'Be specific about the app, target region, and the outcome you want.'
+  }
+  return 'No API key is configured yet. You can still preview the pink agent cursor overlay from here before wiring the live model.'
 }

@@ -65,6 +65,7 @@ type Service struct {
 	artifactDir            string
 	emitEvent              func(string, any)
 	agentCoordinateStates  map[string]agentCoordinateState
+	agentPointerStates     map[string]agentPointerState
 	accessibilitySnapshots map[string]windowAccessibilitySnapshotCache
 	agentLuaSessions       map[string]*agentLuaSession
 	agentTranscriptStates  map[string][]AgentTranscriptItem
@@ -176,21 +177,23 @@ type WindowAccessibilitySnapshotRequest struct {
 }
 
 type WindowAccessibilityElement struct {
-	ID               string   `json:"id"`
-	Path             string   `json:"path"`
-	Depth            int      `json:"depth"`
-	Type             string   `json:"type"`
-	Role             string   `json:"role"`
-	Subrole          string   `json:"subrole"`
-	Title            string   `json:"title"`
-	Value            string   `json:"value"`
-	SelectedText     string   `json:"selected_text"`
-	EnabledKnown     bool     `json:"enabled_known"`
-	Enabled          bool     `json:"enabled"`
-	FocusedKnown     bool     `json:"focused_known"`
-	Focused          bool     `json:"focused"`
-	ScreenRegion     *Region  `json:"screen_region,omitempty"`
-	AvailableActions []string `json:"available_actions"`
+	ID               string              `json:"id"`
+	Path             string              `json:"path"`
+	Depth            int                 `json:"depth"`
+	Type             string              `json:"type"`
+	Role             string              `json:"role"`
+	Subrole          string              `json:"subrole"`
+	Title            string              `json:"title"`
+	Value            string              `json:"value"`
+	SelectedText     string              `json:"selected_text"`
+	EnabledKnown     bool                `json:"enabled_known"`
+	Enabled          bool                `json:"enabled"`
+	FocusedKnown     bool                `json:"focused_known"`
+	Focused          bool                `json:"focused"`
+	ScreenRegion     *Region             `json:"screen_region,omitempty"`
+	AXRef            *AXElementRefResult `json:"ax_ref,omitempty"`
+	AXActions        []string            `json:"ax_actions"`
+	AvailableActions []string            `json:"available_actions"`
 }
 
 type WindowAccessibilitySnapshotResult struct {
@@ -213,6 +216,7 @@ type WindowAccessibilityElementActionResult struct {
 	ElementID   string       `json:"element_id"`
 	Action      string       `json:"action"`
 	ScreenPoint Point        `json:"screen_point"`
+	Mode        string       `json:"mode"`
 	Result      ActionResult `json:"result"`
 	Message     string       `json:"message"`
 }
@@ -338,6 +342,7 @@ type AXActionRequest struct {
 
 type SearchAXElementsRequest struct {
 	Scope               string `json:"scope"`
+	WindowHandle        uint64 `json:"window_handle"`
 	Role                string `json:"role"`
 	Subrole             string `json:"subrole"`
 	TitleContains       string `json:"title_contains"`
@@ -466,6 +471,7 @@ func NewService() *Service {
 		clipboard:              clipboard.NewSystemProvider(),
 		artifactDir:            filepath.Join(".", ".artifacts"),
 		agentCoordinateStates:  make(map[string]agentCoordinateState),
+		agentPointerStates:     make(map[string]agentPointerState),
 		accessibilitySnapshots: make(map[string]windowAccessibilitySnapshotCache),
 		agentLuaSessions:       make(map[string]*agentLuaSession),
 		agentTranscriptStates:  make(map[string][]AgentTranscriptItem),
@@ -747,112 +753,6 @@ func (s *Service) PerformAXElementAction(req PerformAXElementActionOnRefRequest)
 		Ref:     axElementRefResultFromCommon(ref),
 		Action:  string(action),
 		Message: fmt.Sprintf("Performed %s on AX element ref", action),
-	}, nil
-}
-
-func (s *Service) GetWindowAccessibilitySnapshot(req WindowAccessibilitySnapshotRequest) (WindowAccessibilitySnapshotResult, error) {
-	const defaultMaxWindowAccessibilityElements = 400
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	window, err := s.windowForAccessibilitySnapshot(ctx, req.Handle)
-	if err != nil {
-		return WindowAccessibilitySnapshotResult{}, err
-	}
-	summary, err := s.windowSummary(ctx, window)
-	if err != nil {
-		return WindowAccessibilitySnapshotResult{}, err
-	}
-	root, err := window.GetElements(ctx, defaultMaxWindowAccessibilityElements)
-	if err != nil {
-		return WindowAccessibilitySnapshotResult{}, err
-	}
-
-	elements, cache := flattenWindowAccessibilityElements(root)
-	snapshotID := fmt.Sprintf("axwin-%d-%d", summary.Handle, time.Now().UnixNano())
-	cache.Window = summary
-	s.accessibilitySnapshots[snapshotID] = cache
-
-	return WindowAccessibilitySnapshotResult{
-		SnapshotID:   snapshotID,
-		Window:       summary,
-		ElementCount: len(elements),
-		Elements:     elements,
-		Markdown:     formatWindowAccessibilitySnapshotMarkdown(snapshotID, summary, elements),
-		Message:      fmt.Sprintf("Captured %d accessible elements for window %q.", len(elements), summary.Title),
-	}, nil
-}
-
-func (s *Service) ActOnWindowAccessibilityElement(req WindowAccessibilityElementActionRequest) (WindowAccessibilityElementActionResult, error) {
-	snapshotID := strings.TrimSpace(req.SnapshotID)
-	elementID := strings.TrimSpace(req.ElementID)
-	action := strings.ToLower(strings.TrimSpace(req.Action))
-	if snapshotID == "" {
-		return WindowAccessibilityElementActionResult{}, fmt.Errorf("snapshot_id is required")
-	}
-	if elementID == "" {
-		return WindowAccessibilityElementActionResult{}, fmt.Errorf("element_id is required")
-	}
-	if action == "" {
-		return WindowAccessibilityElementActionResult{}, fmt.Errorf("action is required")
-	}
-
-	s.mu.Lock()
-	snapshot, ok := s.accessibilitySnapshots[snapshotID]
-	if !ok {
-		s.mu.Unlock()
-		return WindowAccessibilityElementActionResult{}, fmt.Errorf("unknown snapshot_id %q", snapshotID)
-	}
-	element, ok := snapshot.Elements[elementID]
-	s.mu.Unlock()
-	if !ok {
-		return WindowAccessibilityElementActionResult{}, fmt.Errorf("unknown element_id %q for snapshot %q", elementID, snapshotID)
-	}
-	if element.ScreenRegion == nil {
-		return WindowAccessibilityElementActionResult{}, fmt.Errorf("element %q does not expose a known screen region", elementID)
-	}
-
-	screenPoint := centerPoint(*element.ScreenRegion)
-	var result ActionResult
-	var err error
-
-	switch action {
-	case "focus":
-		result, err = s.FocusElementAtPoint(PointRequest{X: screenPoint.X, Y: screenPoint.Y})
-	case "click":
-		if _, err = s.SetMousePosition(MouseMoveRequest{X: screenPoint.X, Y: screenPoint.Y}); err == nil {
-			result, err = s.ClickMouse(MouseButtonRequest{Button: "left"})
-		}
-	case "double_click":
-		if _, err = s.SetMousePosition(MouseMoveRequest{X: screenPoint.X, Y: screenPoint.Y}); err == nil {
-			result, err = s.DoubleClickMouse(MouseButtonRequest{Button: "left"})
-		}
-	case "right_click":
-		if _, err = s.SetMousePosition(MouseMoveRequest{X: screenPoint.X, Y: screenPoint.Y}); err == nil {
-			result, err = s.ClickMouse(MouseButtonRequest{Button: "right"})
-		}
-	case "show_menu":
-		if _, err = s.SetMousePosition(MouseMoveRequest{X: screenPoint.X, Y: screenPoint.Y}); err == nil {
-			result, err = s.ClickMouse(MouseButtonRequest{Button: "right"})
-		}
-	default:
-		return WindowAccessibilityElementActionResult{}, fmt.Errorf("unsupported action %q", req.Action)
-	}
-	if err != nil {
-		return WindowAccessibilityElementActionResult{}, err
-	}
-
-	return WindowAccessibilityElementActionResult{
-		SnapshotID:  snapshotID,
-		ElementID:   elementID,
-		Action:      action,
-		ScreenPoint: screenPoint,
-		Result:      result,
-		Message:     fmt.Sprintf("Executed %s on %s at (%d, %d).", action, elementID, screenPoint.X, screenPoint.Y),
 	}, nil
 }
 
@@ -2194,133 +2094,6 @@ func (s *Service) windowSummary(ctx context.Context, window *gut.Window) (Window
 	}, nil
 }
 
-func (s *Service) windowForAccessibilitySnapshot(ctx context.Context, handle uint64) (*gut.Window, error) {
-	if handle == 0 {
-		return gut.GetActiveWindow(ctx, s.nut.Registry)
-	}
-	return s.windowByHandle(ctx, handle)
-}
-
-func flattenWindowAccessibilityElements(root shared.WindowElement) ([]WindowAccessibilityElement, windowAccessibilitySnapshotCache) {
-	elements := make([]WindowAccessibilityElement, 0, 32)
-	cache := windowAccessibilitySnapshotCache{
-		Elements: make(map[string]WindowAccessibilityElement),
-	}
-	var visit func(element shared.WindowElement, depth int, path string)
-	visit = func(element shared.WindowElement, depth int, path string) {
-		id := fmt.Sprintf("el-%03d", len(elements)+1)
-		result := windowAccessibilityElementFromShared(id, path, depth, element)
-		elements = append(elements, result)
-		cache.Elements[id] = result
-		for index, child := range element.Children {
-			childPath := fmt.Sprintf("%s.%d", path, index+1)
-			if path == "" {
-				childPath = fmt.Sprintf("%d", index+1)
-			}
-			visit(child, depth+1, childPath)
-		}
-	}
-
-	visit(root, 0, "0")
-	return elements, cache
-}
-
-func windowAccessibilityElementFromShared(id string, path string, depth int, element shared.WindowElement) WindowAccessibilityElement {
-	result := WindowAccessibilityElement{
-		ID:               id,
-		Path:             path,
-		Depth:            depth,
-		Type:             derefString(element.Type),
-		Role:             derefString(element.Role),
-		Subrole:          derefString(element.SubRole),
-		Title:            derefString(element.Title),
-		Value:            derefString(element.Value),
-		SelectedText:     derefString(element.SelectedText),
-		AvailableActions: windowAccessibilityAvailableActions(element),
-	}
-	if element.IsEnabled != nil {
-		result.EnabledKnown = true
-		result.Enabled = *element.IsEnabled
-	}
-	if element.IsFocused != nil {
-		result.FocusedKnown = true
-		result.Focused = *element.IsFocused
-	}
-	if element.Region != nil {
-		region := regionFromShared(*element.Region)
-		result.ScreenRegion = &region
-	}
-	return result
-}
-
-func windowAccessibilityAvailableActions(element shared.WindowElement) []string {
-	actions := make([]string, 0, 4)
-	if element.Region != nil {
-		actions = append(actions, "click", "focus", "double_click", "right_click")
-	}
-	role := strings.ToLower(strings.TrimSpace(derefString(element.Role)))
-	subrole := strings.ToLower(strings.TrimSpace(derefString(element.SubRole)))
-	if strings.Contains(role, "menu") || strings.Contains(subrole, "menu") {
-		actions = append(actions, "show_menu")
-	}
-	return actions
-}
-
-func formatWindowAccessibilitySnapshotMarkdown(snapshotID string, window WindowSummary, elements []WindowAccessibilityElement) string {
-	var builder strings.Builder
-	builder.WriteString(fmt.Sprintf("# Window accessibility snapshot\n\n- Snapshot ID: `%s`\n- Window: `%s` (`%d`)\n- Screen region: `(%d, %d)` `%dx%d`\n- Element count: `%d`\n\n## Elements\n",
-		snapshotID,
-		window.Title,
-		window.Handle,
-		window.Region.Left,
-		window.Region.Top,
-		window.Region.Width,
-		window.Region.Height,
-		len(elements),
-	))
-
-	for _, element := range elements {
-		indent := strings.Repeat("  ", element.Depth)
-		label := firstNonEmpty(element.Title, element.Value, element.SelectedText, element.Role, element.Type, "element")
-		builder.WriteString(fmt.Sprintf("%s- `%s` `%s` — %s\n", indent, element.ID, element.Path, markdownInline(label)))
-		meta := make([]string, 0, 6)
-		if element.Role != "" {
-			meta = append(meta, fmt.Sprintf("role `%s`", element.Role))
-		}
-		if element.Subrole != "" {
-			meta = append(meta, fmt.Sprintf("subrole `%s`", element.Subrole))
-		}
-		if element.Type != "" {
-			meta = append(meta, fmt.Sprintf("type `%s`", element.Type))
-		}
-		if element.EnabledKnown {
-			meta = append(meta, fmt.Sprintf("enabled `%t`", element.Enabled))
-		}
-		if element.FocusedKnown {
-			meta = append(meta, fmt.Sprintf("focused `%t`", element.Focused))
-		}
-		if len(meta) > 0 {
-			builder.WriteString(fmt.Sprintf("%s  - %s\n", indent, strings.Join(meta, ", ")))
-		}
-		if element.ScreenRegion != nil {
-			builder.WriteString(fmt.Sprintf("%s  - screen region `(%d, %d)` `%dx%d`\n", indent, element.ScreenRegion.Left, element.ScreenRegion.Top, element.ScreenRegion.Width, element.ScreenRegion.Height))
-		}
-		if len(element.AvailableActions) > 0 {
-			builder.WriteString(fmt.Sprintf("%s  - available actions: %s\n", indent, backtickJoin(element.AvailableActions)))
-		}
-	}
-
-	builder.WriteString("\nUse `snapshot_id` plus one of the element IDs with `act_on_window_accessibility_element` to click or focus a known control without re-guessing coordinates.")
-	return builder.String()
-}
-
-func centerPoint(region Region) Point {
-	return Point{
-		X: region.Left + region.Width/2,
-		Y: region.Top + region.Height/2,
-	}
-}
-
 func derefString(value *string) string {
 	if value == nil {
 		return ""
@@ -2565,6 +2338,7 @@ func uiElementMetadataResultFromCommon(metadata common.UIElementMetadata) UIElem
 func searchAXElementsRequestFromCommon(query common.AXElementSearchQuery) SearchAXElementsRequest {
 	return SearchAXElementsRequest{
 		Scope:               string(query.Scope),
+		WindowHandle:        uint64(query.WindowHandle),
 		Role:                query.Role,
 		Subrole:             query.Subrole,
 		TitleContains:       query.TitleContains,
@@ -2604,7 +2378,7 @@ func pointFromCommon(point common.Point) Point {
 func parseAXSearchScope(value string) (common.AXSearchScope, error) {
 	scope := common.AXSearchScope(strings.TrimSpace(value))
 	switch scope {
-	case common.AXSearchScopeFocusedWindow, common.AXSearchScopeFrontmostApplication:
+	case common.AXSearchScopeFocusedWindow, common.AXSearchScopeFrontmostApplication, common.AXSearchScopeWindowHandle:
 		return scope, nil
 	default:
 		return "", fmt.Errorf("unsupported AX search scope %q", value)
@@ -2622,6 +2396,9 @@ func parseAXElementSearchQuery(req SearchAXElementsRequest) (common.AXElementSea
 	if req.MaxDepth < 0 {
 		return common.AXElementSearchQuery{}, fmt.Errorf("max_depth must be >= 0")
 	}
+	if scope == common.AXSearchScopeWindowHandle && req.WindowHandle == 0 {
+		return common.AXElementSearchQuery{}, fmt.Errorf("window_handle is required for scope %q", req.Scope)
+	}
 	if strings.TrimSpace(req.Action) != "" {
 		if _, err := parseAXAction(req.Action); err != nil {
 			return common.AXElementSearchQuery{}, err
@@ -2629,6 +2406,7 @@ func parseAXElementSearchQuery(req SearchAXElementsRequest) (common.AXElementSea
 	}
 	return common.AXElementSearchQuery{
 		Scope:               scope,
+		WindowHandle:        common.WindowHandle(req.WindowHandle),
 		Role:                req.Role,
 		Subrole:             req.Subrole,
 		TitleContains:       req.TitleContains,
@@ -2652,6 +2430,9 @@ func parseAXElementRef(req AXElementRefResult) (common.AXElementRef, error) {
 		if entry < 0 {
 			return common.AXElementRef{}, fmt.Errorf("ref.path entries must be non-negative")
 		}
+	}
+	if scope == common.AXSearchScopeWindowHandle && req.WindowHandle == 0 {
+		return common.AXElementRef{}, fmt.Errorf("ref.window_handle is required for scope %q", req.Scope)
 	}
 	return common.AXElementRef{
 		Scope:        scope,

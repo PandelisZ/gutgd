@@ -9,6 +9,7 @@ export default function AgentSettingsPanel({
   models,
   reasoningEffort,
   systemPrompt,
+  apiKeySource,
   status,
   error,
   loadingSettings,
@@ -76,6 +77,10 @@ export default function AgentSettingsPanel({
       <div className="gutgd-agentFeedback">
         <div className="gutgd-agentMetaChips">
           <span className="gutgd-agentChip">
+            <strong>Credentials</strong>
+            <span>{agentCredentialSourceLabel(apiKeySource)}</span>
+          </span>
+          <span className="gutgd-agentChip">
             <strong>Model</strong>
             <span>{model}</span>
           </span>
@@ -88,9 +93,25 @@ export default function AgentSettingsPanel({
             <span>{loadingSettings ? 'Loading' : 'Ready'}</span>
           </span>
         </div>
+        {apiKeySource === 'environment' ? (
+          <div className="gutgd-statusNote gutgd-agentNotice">
+            Live agent runs are currently using <code>OPENAI_API_KEY</code> from the environment. The password field stays empty until you explicitly save a local key for this desktop profile.
+          </div>
+        ) : null}
         {status ? <div className="gutgd-statusNote gutgd-agentNotice">{status}</div> : null}
         {error ? <div className="gutgd-errorNote gutgd-agentNotice gutgd-agentErrorBlock">{error}</div> : null}
       </div>
     </Panel>
   )
+}
+
+function agentCredentialSourceLabel(value) {
+  switch (value) {
+    case 'saved':
+      return 'Saved locally'
+    case 'environment':
+      return 'OPENAI_API_KEY env'
+    default:
+      return 'Missing'
+  }
 }

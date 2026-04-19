@@ -13,6 +13,9 @@ export default function WindowsView() {
   const [y, setY] = useState('80')
   const [width, setWidth] = useState('900')
   const [height, setHeight] = useState('700')
+  const [snapshotID, setSnapshotID] = useState('')
+  const [elementID, setElementID] = useState('')
+  const [elementAction, setElementAction] = useState('click')
   const [output, setOutput] = useState('')
 
   async function run(task) {
@@ -30,6 +33,20 @@ export default function WindowsView() {
   async function loadWindows() {
     const result = await run(() => api.listWindows())
     setWindows(result)
+  }
+
+  async function captureAccessibilitySnapshot() {
+    const result = await run(() => api.getWindowAccessibilitySnapshot({ handle: Number(handle) }))
+    setSnapshotID(result.snapshot_id || '')
+    const firstActionable = (result.elements || []).find((item) => (item.available_actions || []).includes(elementAction))
+      || (result.elements || []).find((item) => (item.available_actions || []).length)
+    if (firstActionable) {
+      setElementID(firstActionable.id || '')
+      if (!(firstActionable.available_actions || []).includes(elementAction) && firstActionable.available_actions?.length) {
+        setElementAction(firstActionable.available_actions[0])
+      }
+    }
+    return result
   }
 
   return (
@@ -75,6 +92,8 @@ export default function WindowsView() {
                     setY(String(item.region.top))
                     setWidth(String(item.region.width))
                     setHeight(String(item.region.height))
+                    setSnapshotID('')
+                    setElementID('')
                     setOutput(item)
                   }}
                 >
@@ -117,6 +136,46 @@ export default function WindowsView() {
             <div className="gutgd-rowActions">
               <Button onClick={() => run(() => api.resizeWindow({ handle: Number(handle), width: Number(width), height: Number(height) }))}>Resize</Button>
             </div>
+          </div>
+        </section>
+
+        <section className="gutgd-rowCard">
+          <div className="gutgd-rowLead">
+            <div className="gutgd-rowLeadGlyph">⌘</div>
+            <div>
+              <h3>Background AX probe</h3>
+              <p>Capture a handle-targeted accessibility snapshot, then run one cached action and inspect whether it stayed in background AX mode or fell back to foreground raw input.</p>
+            </div>
+          </div>
+          <div className="gutgd-rowBody">
+            <div className="gutgd-rowActions">
+              <Button appearance="primary" onClick={captureAccessibilitySnapshot}>Capture AX snapshot</Button>
+              <Button
+                onClick={() => run(() => api.actOnWindowAccessibilityElement({
+                  snapshot_id: snapshotID,
+                  element_id: elementID,
+                  action: elementAction
+                }))}
+                disabled={!snapshotID || !elementID}
+              >
+                Run cached action
+              </Button>
+            </div>
+            <Field label="Snapshot ID">
+              <Input value={snapshotID} onChange={(_, data) => setSnapshotID(data.value)} />
+            </Field>
+            <Field label="Element ID">
+              <Input value={elementID} onChange={(_, data) => setElementID(data.value)} />
+            </Field>
+            <Field label="Action">
+              <select className="gutgd-nativeSelect" value={elementAction} onChange={(event) => setElementAction(event.target.value)}>
+                <option value="click">click</option>
+                <option value="focus">focus</option>
+                <option value="double_click">double_click</option>
+                <option value="right_click">right_click</option>
+                <option value="show_menu">show_menu</option>
+              </select>
+            </Field>
           </div>
         </section>
 

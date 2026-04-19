@@ -11,6 +11,7 @@ export default function AgentSettingsView() {
   const [models, setModels] = useState([])
   const [reasoningEffort, setReasoningEffort] = useState('medium')
   const [systemPrompt, setSystemPrompt] = useState('')
+  const [apiKeySource, setAPIKeySource] = useState('missing')
   const [status, setStatus] = useState('')
   const [loadingSettings, setLoadingSettings] = useState(true)
   const [savingSettings, setSavingSettings] = useState(false)
@@ -19,12 +20,16 @@ export default function AgentSettingsView() {
   useEffect(() => {
     async function load() {
       try {
-        const settings = await api.getAgentSettings()
+        const [settings, settingsStatus] = await Promise.all([
+          api.getAgentSettings(),
+          api.getAgentSettingsStatus()
+        ])
         setAPIKey(settings.api_key || '')
         setBaseURL(settings.base_url || '')
         setModel(settings.model || 'gpt-5.4')
         setReasoningEffort(settings.reasoning_effort || 'medium')
         setSystemPrompt(settings.system_prompt || '')
+        setAPIKeySource(settingsStatus.api_key_source || 'missing')
         const options = await api.listAgentModels()
         setModels(options || [])
       } catch (nextError) {
@@ -49,11 +54,13 @@ export default function AgentSettingsView() {
         reasoning_effort: reasoningEffort,
         system_prompt: systemPrompt
       })
+      const settingsStatus = await api.getAgentSettingsStatus()
       setAPIKey(saved.api_key || '')
       setBaseURL(saved.base_url || '')
       setModel(saved.model || 'gpt-5.4')
       setReasoningEffort(saved.reasoning_effort || 'medium')
       setSystemPrompt(saved.system_prompt || '')
+      setAPIKeySource(settingsStatus.api_key_source || 'missing')
       setStatus('Settings saved.')
     } catch (nextError) {
       setError(nextError.message || String(nextError))
@@ -77,6 +84,7 @@ export default function AgentSettingsView() {
           models={models}
           reasoningEffort={reasoningEffort}
           systemPrompt={systemPrompt}
+          apiKeySource={apiKeySource}
           status={status}
           error={error}
           loadingSettings={loadingSettings}

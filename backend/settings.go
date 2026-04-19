@@ -58,6 +58,14 @@ func (s *Service) loadAgentSettings() (AgentSettings, error) {
 	return normalizeAgentSettings(settings), nil
 }
 
+func (s *Service) loadEffectiveAgentSettings() (AgentSettings, error) {
+	settings, err := s.loadAgentSettings()
+	if err != nil {
+		return AgentSettings{}, err
+	}
+	return mergeAgentSettingsWithEnvironment(settings, agentEnvironmentSettings()), nil
+}
+
 func (s *Service) saveAgentSettings(settings AgentSettings) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -84,4 +92,61 @@ func agentSettingsPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(root, "gutgd", "settings.json"), nil
+}
+
+func agentEnvironmentSettings() AgentSettings {
+	return AgentSettings{
+		APIKey:  strings.TrimSpace(os.Getenv("OPENAI_API_KEY")),
+		BaseURL: strings.TrimSpace(os.Getenv("OPENAI_BASE_URL")),
+	}
+}
+
+func mergeAgentSettingsWithEnvironment(settings AgentSettings, env AgentSettings) AgentSettings {
+	if strings.TrimSpace(settings.APIKey) == "" {
+		settings.APIKey = strings.TrimSpace(env.APIKey)
+	}
+	if strings.TrimSpace(settings.BaseURL) == "" {
+		settings.BaseURL = strings.TrimSpace(env.BaseURL)
+	}
+	return normalizeAgentSettings(settings)
+}
+
+func agentSettingsStatus(settings AgentSettings, env AgentSettings) AgentSettingsStatus {
+	status := AgentSettingsStatus{}
+
+	settings = normalizeAgentSettings(settings)
+	env = normalizeAgentEnvironmentSettings(env)
+
+	switch {
+	case settings.APIKey != "":
+		status.HasAPIKey = true
+		status.APIKeySource = "saved"
+	case env.APIKey != "":
+		status.HasAPIKey = true
+		status.APIKeySource = "environment"
+	default:
+		status.APIKeySource = "missing"
+	}
+
+	switch {
+	case settings.BaseURL != "":
+		status.HasBaseURL = true
+		status.BaseURLSource = "saved"
+	case env.BaseURL != "":
+		status.HasBaseURL = true
+		status.BaseURLSource = "environment"
+	default:
+		status.BaseURLSource = "default"
+	}
+
+	return status
+}
+
+func normalizeAgentEnvironmentSettings(settings AgentSettings) AgentSettings {
+	settings.APIKey = strings.TrimSpace(settings.APIKey)
+	settings.BaseURL = strings.TrimSpace(settings.BaseURL)
+	settings.Model = strings.TrimSpace(settings.Model)
+	settings.ReasoningEffort = strings.TrimSpace(settings.ReasoningEffort)
+	settings.SystemPrompt = strings.TrimSpace(settings.SystemPrompt)
+	return settings
 }
