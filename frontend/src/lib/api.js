@@ -28,6 +28,8 @@ export const api = {
   listWindows: () => callWithRuntime('ListWindows', () => Service.ListWindows()),
   getActiveWindow: () => callWithRuntime('GetActiveWindow', () => Service.GetActiveWindow()),
   getWindowAccessibilitySnapshot: (payload) => callWithRuntime('GetWindowAccessibilitySnapshot', () => Service.GetWindowAccessibilitySnapshot(payload)),
+  resolveBackgroundWindowPoint: (payload) => callWithRuntime('ResolveBackgroundWindowPoint', () => Service.ResolveBackgroundWindowPoint(payload)),
+  performBackgroundWindowAction: (payload) => callWithRuntime('PerformBackgroundWindowAction', () => Service.PerformBackgroundWindowAction(payload)),
   actOnWindowAccessibilityElement: (payload) => callWithRuntime('ActOnWindowAccessibilityElement', () => Service.ActOnWindowAccessibilityElement(payload)),
   focusWindow: (payload) => callWithRuntime('FocusWindow', () => Service.FocusWindow(payload)),
   minimizeWindow: (payload) => callWithRuntime('MinimizeWindow', () => Service.MinimizeWindow(payload)),

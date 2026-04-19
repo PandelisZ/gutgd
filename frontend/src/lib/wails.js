@@ -45,8 +45,11 @@ function mockResult(method) {
             focused_known: true,
             focused: false,
             screen_region: { left: 80, top: 80, width: 900, height: 640 },
+            action_point: { x: 530, y: 400 },
+            action_point_known: true,
             ax_ref: { scope: 'window_handle', owner_pid: 123, window_handle: 101, path: [] },
             ax_actions: [],
+            background_safe_actions: ['focus'],
             available_actions: ['focus']
           },
           {
@@ -60,13 +63,74 @@ function mockResult(method) {
             focused_known: true,
             focused: false,
             screen_region: { left: 760, top: 660, width: 120, height: 40 },
+            action_point: { x: 820, y: 680 },
+            action_point_known: true,
             ax_ref: { scope: 'window_handle', owner_pid: 123, window_handle: 101, path: [0] },
             ax_actions: ['AXPress'],
+            background_safe_actions: ['click', 'double_click', 'focus'],
             available_actions: ['focus', 'click', 'double_click', 'right_click', 'show_menu']
           }
         ],
         markdown: '# Mock accessibility snapshot',
         message: 'Mock snapshot for preview mode'
+      }
+    case 'ResolveBackgroundWindowPoint':
+      return {
+        snapshot_id: 'preview-snapshot',
+        requested_point: { x: 740, y: 600 },
+        screen_point: { x: 820, y: 680 },
+        snapped: false,
+        element_id: 'el-002',
+        element: {
+          id: 'el-002',
+          path: '0.1',
+          depth: 1,
+          role: 'AXButton',
+          title: 'Send',
+          enabled_known: true,
+          enabled: true,
+          focused_known: true,
+          focused: false,
+          screen_region: { left: 760, top: 660, width: 120, height: 40 },
+          action_point: { x: 820, y: 680 },
+          action_point_known: true,
+          ax_ref: { scope: 'window_handle', owner_pid: 123, window_handle: 101, path: [0] },
+          ax_actions: ['AXPress'],
+          background_safe_actions: ['click', 'double_click', 'focus'],
+          available_actions: ['focus', 'click', 'double_click', 'right_click', 'show_menu']
+        },
+        mode: 'background_virtual',
+        message: 'Resolved background virtual pointer to el-002 at (820, 680).'
+      }
+    case 'PerformBackgroundWindowAction':
+      return {
+        snapshot_id: 'preview-snapshot',
+        action: 'click',
+        requested_point: { x: 740, y: 600 },
+        screen_point: { x: 820, y: 680 },
+        snapped: false,
+        element_id: 'el-002',
+        element: {
+          id: 'el-002',
+          path: '0.1',
+          depth: 1,
+          role: 'AXButton',
+          title: 'Send',
+          enabled_known: true,
+          enabled: true,
+          focused_known: true,
+          focused: false,
+          screen_region: { left: 760, top: 660, width: 120, height: 40 },
+          action_point: { x: 820, y: 680 },
+          action_point_known: true,
+          ax_ref: { scope: 'window_handle', owner_pid: 123, window_handle: 101, path: [0] },
+          ax_actions: ['AXPress'],
+          background_safe_actions: ['click', 'double_click', 'focus'],
+          available_actions: ['focus', 'click', 'double_click', 'right_click', 'show_menu']
+        },
+        mode: 'background_virtual',
+        result: { ok: true, message: 'Executed click on el-002 at (820, 680) via background_virtual.' },
+        message: 'Executed click on el-002 at (820, 680) via background_virtual.'
       }
     case 'ActOnWindowAccessibilityElement':
       return {

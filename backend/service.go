@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/PandelisZ/gut"
+	"github.com/PandelisZ/gut/backgroundmouse"
 	"github.com/PandelisZ/gut/clipboard"
 	"github.com/PandelisZ/gut/native/common"
 	"github.com/PandelisZ/gut/shared"
@@ -177,23 +178,26 @@ type WindowAccessibilitySnapshotRequest struct {
 }
 
 type WindowAccessibilityElement struct {
-	ID               string              `json:"id"`
-	Path             string              `json:"path"`
-	Depth            int                 `json:"depth"`
-	Type             string              `json:"type"`
-	Role             string              `json:"role"`
-	Subrole          string              `json:"subrole"`
-	Title            string              `json:"title"`
-	Value            string              `json:"value"`
-	SelectedText     string              `json:"selected_text"`
-	EnabledKnown     bool                `json:"enabled_known"`
-	Enabled          bool                `json:"enabled"`
-	FocusedKnown     bool                `json:"focused_known"`
-	Focused          bool                `json:"focused"`
-	ScreenRegion     *Region             `json:"screen_region,omitempty"`
-	AXRef            *AXElementRefResult `json:"ax_ref,omitempty"`
-	AXActions        []string            `json:"ax_actions"`
-	AvailableActions []string            `json:"available_actions"`
+	ID                    string              `json:"id"`
+	Path                  string              `json:"path"`
+	Depth                 int                 `json:"depth"`
+	Type                  string              `json:"type"`
+	Role                  string              `json:"role"`
+	Subrole               string              `json:"subrole"`
+	Title                 string              `json:"title"`
+	Value                 string              `json:"value"`
+	SelectedText          string              `json:"selected_text"`
+	EnabledKnown          bool                `json:"enabled_known"`
+	Enabled               bool                `json:"enabled"`
+	FocusedKnown          bool                `json:"focused_known"`
+	Focused               bool                `json:"focused"`
+	ScreenRegion          *Region             `json:"screen_region,omitempty"`
+	ActionPoint           Point               `json:"action_point"`
+	ActionPointKnown      bool                `json:"action_point_known"`
+	AXRef                 *AXElementRefResult `json:"ax_ref,omitempty"`
+	AXActions             []string            `json:"ax_actions"`
+	BackgroundSafeActions []string            `json:"background_safe_actions"`
+	AvailableActions      []string            `json:"available_actions"`
 }
 
 type WindowAccessibilitySnapshotResult struct {
@@ -221,9 +225,49 @@ type WindowAccessibilityElementActionResult struct {
 	Message     string       `json:"message"`
 }
 
+type BackgroundMouseResolveRequest struct {
+	SnapshotID string `json:"snapshot_id"`
+	X          int    `json:"x"`
+	Y          int    `json:"y"`
+}
+
+type BackgroundMouseResolveResult struct {
+	SnapshotID     string                     `json:"snapshot_id"`
+	RequestedPoint Point                      `json:"requested_point"`
+	ScreenPoint    Point                      `json:"screen_point"`
+	Snapped        bool                       `json:"snapped"`
+	ElementID      string                     `json:"element_id"`
+	Element        WindowAccessibilityElement `json:"element"`
+	Mode           string                     `json:"mode"`
+	Message        string                     `json:"message"`
+}
+
+type BackgroundMouseActionRequest struct {
+	SnapshotID string        `json:"snapshot_id"`
+	Action     string        `json:"action"`
+	Point      *PointRequest `json:"point,omitempty"`
+	ElementID  string        `json:"element_id,omitempty"`
+}
+
+type BackgroundMouseActionResult struct {
+	SnapshotID     string                     `json:"snapshot_id"`
+	Action         string                     `json:"action"`
+	RequestedPoint *Point                     `json:"requested_point,omitempty"`
+	ScreenPoint    Point                      `json:"screen_point"`
+	Snapped        bool                       `json:"snapped"`
+	ElementID      string                     `json:"element_id"`
+	Element        WindowAccessibilityElement `json:"element"`
+	Mode           string                     `json:"mode"`
+	Result         ActionResult               `json:"result"`
+	Message        string                     `json:"message"`
+}
+
 type windowAccessibilitySnapshotCache struct {
-	Window   WindowSummary
-	Elements map[string]WindowAccessibilityElement
+	Window             WindowSummary
+	Elements           map[string]WindowAccessibilityElement
+	ElementIDsByRef    map[string]string
+	BackgroundSnapshot backgroundmouse.WindowSnapshot
+	LastVirtualPoint   *Point
 }
 
 type DiagnosticsResponse struct {
@@ -771,6 +815,9 @@ func (s *Service) TypeText(req KeyboardTextRequest) (ActionResult, error) {
 }
 
 func (s *Service) TapKeys(req KeyboardKeysRequest) (ActionResult, error) {
+	if shouldUseDarwinShortcutPath(req.Keys) {
+		return s.PressShortcut(KeyboardShortcutRequest{Keys: append([]string(nil), req.Keys...)})
+	}
 	return s.runKeyboardKeys(req, func(ctx context.Context, keys []shared.Key) error {
 		return s.nut.Keyboard.Tap(ctx, keys...)
 	}, "Tapped")
@@ -801,7 +848,7 @@ func (s *Service) PressShortcut(req KeyboardShortcutRequest) (ActionResult, erro
 		return ActionResult{}, fmt.Errorf("at least one key is required")
 	}
 
-	if runtime.GOOS != "darwin" {
+	if currentRuntimeGOOS != "darwin" {
 		return s.TapKeys(KeyboardKeysRequest{Keys: keys})
 	}
 
@@ -812,19 +859,14 @@ func (s *Service) PressShortcut(req KeyboardShortcutRequest) (ActionResult, erro
 	if err != nil {
 		return ActionResult{}, err
 	}
-	cmd := exec.CommandContext(ctx, "osascript", "-e", script)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		message := strings.TrimSpace(string(output))
-		if message == "" {
-			return ActionResult{}, err
-		}
-		return ActionResult{}, fmt.Errorf("%v: %s", err, message)
+	if err := executeDarwinAppleScript(ctx, script); err != nil {
+		return ActionResult{}, err
 	}
 	return ActionResult{OK: true, Message: fmt.Sprintf("Pressed shortcut %s", strings.Join(keys, " + "))}, nil
 }
 
 func (s *Service) PressSpecialKey(req KeyboardSpecialKeyRequest) (ActionResult, error) {
-	if runtime.GOOS != "darwin" {
+	if currentRuntimeGOOS != "darwin" {
 		return ActionResult{}, fmt.Errorf("press_special_key is currently only exposed as a safe fallback on macOS")
 	}
 	keyCode, ok := darwinSpecialKeyCode(strings.TrimSpace(req.Key))
@@ -839,13 +881,8 @@ func (s *Service) PressSpecialKey(req KeyboardSpecialKeyRequest) (ActionResult, 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "osascript", "-e", script)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		message := strings.TrimSpace(string(output))
-		if message == "" {
-			return ActionResult{}, err
-		}
-		return ActionResult{}, fmt.Errorf("%v: %s", err, message)
+	if err := executeDarwinAppleScript(ctx, script); err != nil {
+		return ActionResult{}, err
 	}
 	return ActionResult{OK: true, Message: fmt.Sprintf("Pressed %s %d time(s)", req.Key, repeatCount)}, nil
 }
@@ -2141,7 +2178,7 @@ func featureStatusesForGOOS(goos string, report guttesting.Report) []FeatureStat
 			availableFeatureStatus("capture_active_window", "available via the macOS safe screenshot fallback using the active window bounds"),
 			availableFeatureStatus("capture_window", "available via the macOS safe screenshot fallback using a whole window's bounds"),
 			availableFeatureStatus("press_special_key", "available via the macOS System Events special-key path"),
-			availableFeatureStatus("tap_keys", "available through the native keyboard.tap backend"),
+			availableFeatureStatus("tap_keys", "available via the macOS System Events safe shortcut path"),
 			availableFeatureStatus("press_keys", "available through the native keyboard.toggle backend"),
 			availableFeatureStatus("release_keys", "available through the native keyboard.toggle backend"),
 			unavailableFeatureStatus("highlight_region", "intentionally hidden on macOS 26+; use whole-window or full-screen captures instead"),

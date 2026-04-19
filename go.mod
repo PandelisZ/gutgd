@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	github.com/PandelisZ/gut v0.0.0
 	github.com/Shopify/go-lua v0.0.0-20250718183320-1e37f32ad7d0
-	github.com/openai/openai-go/v3 v3.28.0
+	github.com/openai/openai-go/v3 v3.32.0
 	github.com/wailsapp/wails/v3 v3.0.0-alpha.74
 )
 

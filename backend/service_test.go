@@ -7,11 +7,13 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/PandelisZ/gut/native/common"
+	"github.com/PandelisZ/gut/native/libnutcore"
 	"github.com/PandelisZ/gut/shared"
 	guttesting "github.com/PandelisZ/gut/testing"
 )
@@ -651,6 +653,12 @@ func TestGetWindowAccessibilitySnapshotBuildsMarkdownInventory(t *testing.T) {
 	if len(result.Elements) < 2 || result.Elements[1].ID == "" || result.Elements[1].ScreenRegion == nil || result.Elements[1].AXRef == nil {
 		t.Fatalf("unexpected element list: %#v", result.Elements)
 	}
+	if !result.Elements[1].ActionPointKnown || result.Elements[1].ActionPoint != (Point{X: 1016, Y: 712}) {
+		t.Fatalf("expected action-point metadata on cached element, got %#v", result.Elements[1])
+	}
+	if !reflect.DeepEqual(result.Elements[1].BackgroundSafeActions, []string{"click", "double_click", "focus"}) {
+		t.Fatalf("unexpected background-safe action list: %#v", result.Elements[1].BackgroundSafeActions)
+	}
 	windowProvider, err := service.nut.Registry.Window()
 	if err != nil {
 		t.Fatalf("expected window provider: %v", err)
@@ -783,6 +791,217 @@ func TestActOnWindowAccessibilityElementFallsBackToForegroundRawClickWhenAXActio
 	}
 	if len(fakeWindows.focusCalls) != 1 || fakeWindows.focusCalls[0] != shared.WindowHandle(7) {
 		t.Fatalf("expected raw click fallback to focus window 7 first, got %+v", fakeWindows.focusCalls)
+	}
+}
+
+func TestResolveBackgroundWindowPointUsesStrictVirtualCursor(t *testing.T) {
+	accessibility := &fakeBackendAccessibilityProvider{
+		searchAXElementsMatches: []common.AXElementMatch{
+			{
+				Ref: common.AXElementRef{Scope: common.AXSearchScopeWindowHandle, OwnerPID: 77, WindowHandle: 7, Path: []int{}},
+				Metadata: common.UIElementMetadata{
+					Role:       "AXWindow",
+					Title:      "Slack",
+					Enabled:    true,
+					Frame:      common.Rect{X: 300, Y: 120, Width: 800, Height: 600},
+					FrameKnown: true,
+				},
+			},
+			{
+				Ref: common.AXElementRef{Scope: common.AXSearchScopeWindowHandle, OwnerPID: 77, WindowHandle: 7, Path: []int{0}},
+				Metadata: common.UIElementMetadata{
+					Role:       "AXButton",
+					Title:      "Send",
+					Enabled:    true,
+					Frame:      common.Rect{X: 1000, Y: 700, Width: 32, Height: 24},
+					FrameKnown: true,
+					Actions:    []string{string(common.AXPress)},
+				},
+				Depth:            1,
+				ActionPoint:      common.Point{X: 1016, Y: 712},
+				ActionPointKnown: true,
+			},
+		},
+	}
+	service := newTestServiceWithWindowsAndAccessibility(accessibility, WindowSummary{
+		Handle: 7,
+		Title:  "Slack",
+		Region: Region{Left: 300, Top: 120, Width: 800, Height: 600},
+	})
+
+	snapshot, err := service.GetWindowAccessibilitySnapshot(WindowAccessibilitySnapshotRequest{Handle: 7})
+	if err != nil {
+		t.Fatalf("GetWindowAccessibilitySnapshot returned error: %v", err)
+	}
+
+	var events []recordedAgentCursorEvent
+	restore := interceptAgentCursorEvents(&events)
+	defer restore()
+
+	result, err := service.ResolveBackgroundWindowPoint(BackgroundMouseResolveRequest{
+		SnapshotID: snapshot.SnapshotID,
+		X:          716,
+		Y:          592,
+	})
+	if err != nil {
+		t.Fatalf("ResolveBackgroundWindowPoint returned error: %v", err)
+	}
+	if result.Mode != "background_virtual" || result.ElementID == "" {
+		t.Fatalf("unexpected resolve result: %+v", result)
+	}
+	if result.ScreenPoint != (Point{X: 1016, Y: 712}) || result.Snapped {
+		t.Fatalf("expected snapped virtual cursor at action point, got %+v", result)
+	}
+	if len(events) != 1 || events[0].Kind != libnutcore.AgentCursorEventMove {
+		t.Fatalf("expected one virtual move event, got %+v", events)
+	}
+
+	windowProvider, err := service.nut.Registry.Window()
+	if err != nil {
+		t.Fatalf("expected window provider: %v", err)
+	}
+	fakeWindows, ok := windowProvider.(*fakeBackendWindowProvider)
+	if !ok {
+		t.Fatalf("expected fake backend window provider, got %T", windowProvider)
+	}
+	if len(fakeWindows.focusCalls) != 0 {
+		t.Fatalf("expected strict background resolve to avoid focusing, got %+v", fakeWindows.focusCalls)
+	}
+}
+
+func TestPerformBackgroundWindowActionStaysBackgroundSafe(t *testing.T) {
+	accessibility := &fakeBackendAccessibilityProvider{
+		searchAXElementsMatches: []common.AXElementMatch{
+			{
+				Ref: common.AXElementRef{Scope: common.AXSearchScopeWindowHandle, OwnerPID: 77, WindowHandle: 7, Path: []int{}},
+				Metadata: common.UIElementMetadata{
+					Role:       "AXWindow",
+					Title:      "Slack",
+					Enabled:    true,
+					Frame:      common.Rect{X: 300, Y: 120, Width: 800, Height: 600},
+					FrameKnown: true,
+				},
+			},
+			{
+				Ref: common.AXElementRef{Scope: common.AXSearchScopeWindowHandle, OwnerPID: 77, WindowHandle: 7, Path: []int{0}},
+				Metadata: common.UIElementMetadata{
+					Role:       "AXButton",
+					Title:      "Send",
+					Enabled:    true,
+					Frame:      common.Rect{X: 1000, Y: 700, Width: 32, Height: 24},
+					FrameKnown: true,
+					Actions:    []string{string(common.AXPress)},
+				},
+				Depth:            1,
+				ActionPoint:      common.Point{X: 1016, Y: 712},
+				ActionPointKnown: true,
+			},
+		},
+	}
+	service := newTestServiceWithWindowsAndAccessibility(accessibility, WindowSummary{
+		Handle: 7,
+		Title:  "Slack",
+		Region: Region{Left: 300, Top: 120, Width: 800, Height: 600},
+	})
+
+	snapshot, err := service.GetWindowAccessibilitySnapshot(WindowAccessibilitySnapshotRequest{Handle: 7})
+	if err != nil {
+		t.Fatalf("GetWindowAccessibilitySnapshot returned error: %v", err)
+	}
+
+	var events []recordedAgentCursorEvent
+	restore := interceptAgentCursorEvents(&events)
+	defer restore()
+
+	result, err := service.PerformBackgroundWindowAction(BackgroundMouseActionRequest{
+		SnapshotID: snapshot.SnapshotID,
+		Action:     "click",
+		Point:      &PointRequest{X: 716, Y: 592},
+	})
+	if err != nil {
+		t.Fatalf("PerformBackgroundWindowAction returned error: %v", err)
+	}
+	if result.Mode != "background_virtual" || !result.Result.OK {
+		t.Fatalf("unexpected action result: %+v", result)
+	}
+	if accessibility.lastPerformAXAction != common.AXPress {
+		t.Fatalf("expected strict background click to use AXPress, got %+v", accessibility.lastPerformAXAction)
+	}
+	if len(events) != 2 || events[0].Kind != libnutcore.AgentCursorEventMove || events[1].Kind != libnutcore.AgentCursorEventClick {
+		t.Fatalf("expected move + click overlay events, got %+v", events)
+	}
+
+	windowProvider, err := service.nut.Registry.Window()
+	if err != nil {
+		t.Fatalf("expected window provider: %v", err)
+	}
+	fakeWindows, ok := windowProvider.(*fakeBackendWindowProvider)
+	if !ok {
+		t.Fatalf("expected fake backend window provider, got %T", windowProvider)
+	}
+	if len(fakeWindows.focusCalls) != 0 {
+		t.Fatalf("expected strict background action to avoid focusing, got %+v", fakeWindows.focusCalls)
+	}
+}
+
+func TestPerformBackgroundWindowActionReturnsExplicitStrictError(t *testing.T) {
+	accessibility := &fakeBackendAccessibilityProvider{
+		searchAXElementsMatches: []common.AXElementMatch{
+			{
+				Ref: common.AXElementRef{Scope: common.AXSearchScopeWindowHandle, OwnerPID: 77, WindowHandle: 7, Path: []int{}},
+				Metadata: common.UIElementMetadata{
+					Role:       "AXWindow",
+					Title:      "Slack",
+					Enabled:    true,
+					Frame:      common.Rect{X: 300, Y: 120, Width: 800, Height: 600},
+					FrameKnown: true,
+				},
+			},
+			{
+				Ref: common.AXElementRef{Scope: common.AXSearchScopeWindowHandle, OwnerPID: 77, WindowHandle: 7, Path: []int{0}},
+				Metadata: common.UIElementMetadata{
+					Role:       "AXStaticText",
+					Title:      "Status",
+					Enabled:    true,
+					Frame:      common.Rect{X: 500, Y: 180, Width: 120, Height: 20},
+					FrameKnown: true,
+				},
+				Depth:            1,
+				ActionPoint:      common.Point{X: 560, Y: 190},
+				ActionPointKnown: true,
+			},
+		},
+	}
+	service := newTestServiceWithWindowsAndAccessibility(accessibility, WindowSummary{
+		Handle: 7,
+		Title:  "Slack",
+		Region: Region{Left: 300, Top: 120, Width: 800, Height: 600},
+	})
+
+	snapshot, err := service.GetWindowAccessibilitySnapshot(WindowAccessibilitySnapshotRequest{Handle: 7})
+	if err != nil {
+		t.Fatalf("GetWindowAccessibilitySnapshot returned error: %v", err)
+	}
+
+	_, err = service.PerformBackgroundWindowAction(BackgroundMouseActionRequest{
+		SnapshotID: snapshot.SnapshotID,
+		Action:     "show_menu",
+		ElementID:  snapshot.Elements[1].ID,
+	})
+	if err == nil || !strings.Contains(err.Error(), "unsupported_background_action") {
+		t.Fatalf("expected explicit strict background error, got %v", err)
+	}
+
+	windowProvider, err := service.nut.Registry.Window()
+	if err != nil {
+		t.Fatalf("expected window provider: %v", err)
+	}
+	fakeWindows, ok := windowProvider.(*fakeBackendWindowProvider)
+	if !ok {
+		t.Fatalf("expected fake backend window provider, got %T", windowProvider)
+	}
+	if len(fakeWindows.focusCalls) != 0 {
+		t.Fatalf("expected unsupported strict background action to avoid focusing, got %+v", fakeWindows.focusCalls)
 	}
 }
 

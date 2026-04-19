@@ -249,21 +249,12 @@ func (s *Service) ListAgentModels() ([]AgentModelOption, error) {
 		return nil, fmt.Errorf("openai api key is required")
 	}
 
-	client := newAgentOpenAIClient(settings)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	page, err := client.Models.List(ctx)
+	items, err := fetchAgentModels(ctx, settings)
 	if err != nil {
 		return nil, err
-	}
-
-	items := make([]AgentModelOption, 0, len(page.Data))
-	for _, item := range page.Data {
-		if strings.TrimSpace(item.ID) == "" {
-			continue
-		}
-		items = append(items, AgentModelOption{ID: item.ID})
 	}
 
 	slices.SortFunc(items, func(a, b AgentModelOption) int {
@@ -324,6 +315,7 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 	params := responses.ResponseNewParams{
 		Instructions: openai.String(instructions),
 		Model:        openai.ChatModel(settings.Model),
+		ServiceTier:  responses.ResponseNewParamsServiceTierPriority,
 		Store:        openai.Bool(true),
 		Input: responses.ResponseNewParamsInputUnion{
 			OfInputItemList: prependAgentScaffold(agentLoopScaffold(userRequest, priorTranscript, coordinateState), inputItems...),
@@ -495,6 +487,7 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 			response, err = client.Responses.New(ctx, responses.ResponseNewParams{
 				Instructions:       openai.String(instructions),
 				Model:              openai.ChatModel(settings.Model),
+				ServiceTier:        responses.ResponseNewParamsServiceTierPriority,
 				Store:              openai.Bool(true),
 				PreviousResponseID: openai.String(response.ID),
 				Input: responses.ResponseNewParamsInputUnion{
@@ -534,6 +527,7 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 		nextParams := responses.ResponseNewParams{
 			Instructions:       openai.String(instructions),
 			Model:              openai.ChatModel(settings.Model),
+			ServiceTier:        responses.ResponseNewParamsServiceTierPriority,
 			Store:              openai.Bool(true),
 			PreviousResponseID: openai.String(response.ID),
 			Input: responses.ResponseNewParamsInputUnion{
@@ -1917,7 +1911,8 @@ func analyzeScreenshot(ctx context.Context, client openai.Client, model string, 
 		scaleY,
 	)
 	response, err := client.Responses.New(ctx, responses.ResponseNewParams{
-		Model: openai.ChatModel(model),
+		Model:       openai.ChatModel(model),
+		ServiceTier: responses.ResponseNewParamsServiceTierPriority,
 		Input: responses.ResponseNewParamsInputUnion{
 			OfInputItemList: []responses.ResponseInputItemUnionParam{
 				responses.ResponseInputItemParamOfMessage(
@@ -2073,7 +2068,6 @@ func combineInstructions(systemPrompt string) string {
 func newAgentOpenAIClient(settings AgentSettings) openai.Client {
 	options := []option.RequestOption{
 		option.WithAPIKey(settings.APIKey),
-		option.WithJSONSet("service_tier", "priority"),
 	}
 	if baseURL := strings.TrimSpace(settings.BaseURL); baseURL != "" {
 		options = append(options, option.WithBaseURL(baseURL))

@@ -2,15 +2,17 @@ package backend
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/PandelisZ/gut"
+	"github.com/PandelisZ/gut/backgroundmouse"
 	"github.com/PandelisZ/gut/native/common"
+	"github.com/PandelisZ/gut/native/libnutcore"
+	"github.com/PandelisZ/gut/shared"
 )
-
-const defaultMaxWindowAccessibilityElements = 400
 
 func (s *Service) GetWindowAccessibilitySnapshot(req WindowAccessibilitySnapshotRequest) (WindowAccessibilitySnapshotResult, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -24,21 +26,12 @@ func (s *Service) GetWindowAccessibilitySnapshot(req WindowAccessibilitySnapshot
 		return WindowAccessibilitySnapshotResult{}, err
 	}
 
-	accessibility, err := s.nut.Registry.Accessibility()
-	if err != nil {
-		return WindowAccessibilitySnapshotResult{}, err
-	}
-	matches, err := accessibility.SearchAXElements(ctx, common.AXElementSearchQuery{
-		Scope:        common.AXSearchScopeWindowHandle,
-		WindowHandle: common.WindowHandle(window.Handle),
-		Limit:        defaultMaxWindowAccessibilityElements,
-		MaxDepth:     defaultMaxWindowAccessibilityElements,
-	})
+	snapshot, err := s.nut.BackgroundMouse.SnapshotWindow(ctx, shared.WindowHandle(window.Handle))
 	if err != nil {
 		return WindowAccessibilitySnapshotResult{}, err
 	}
 
-	elements, cache := flattenWindowAccessibilityMatches(matches)
+	elements, cache := flattenWindowAccessibilitySnapshot(snapshot)
 	snapshotID := fmt.Sprintf("axwin-%d-%d", window.Handle, time.Now().UnixNano())
 	cache.Window = window
 	s.accessibilitySnapshots[snapshotID] = cache
@@ -80,8 +73,8 @@ func (s *Service) ActOnWindowAccessibilityElement(req WindowAccessibilityElement
 	}
 
 	screenPoint := Point{}
-	if element.ScreenRegion != nil {
-		screenPoint = centerPoint(*element.ScreenRegion)
+	if point, err := requireWindowAccessibilityScreenPoint(element); err == nil {
+		screenPoint = point
 	}
 
 	result, mode, err := s.performWindowAccessibilityAction(snapshot.Window, element, action)
@@ -102,6 +95,132 @@ func (s *Service) ActOnWindowAccessibilityElement(req WindowAccessibilityElement
 		Mode:        mode,
 		Result:      result,
 		Message:     message,
+	}, nil
+}
+
+func (s *Service) ResolveBackgroundWindowPoint(req BackgroundMouseResolveRequest) (BackgroundMouseResolveResult, error) {
+	snapshotID := strings.TrimSpace(req.SnapshotID)
+	if snapshotID == "" {
+		return BackgroundMouseResolveResult{}, fmt.Errorf("snapshot_id is required")
+	}
+
+	requested := shared.Point{X: req.X, Y: req.Y}
+	resolution, elementID, element, err := s.resolveBackgroundWindowPoint(snapshotID, requested)
+	if err != nil {
+		return BackgroundMouseResolveResult{}, err
+	}
+
+	return BackgroundMouseResolveResult{
+		SnapshotID:     snapshotID,
+		RequestedPoint: Point{X: requested.X, Y: requested.Y},
+		ScreenPoint:    pointFromSharedPoint(resolution.ScreenPoint),
+		Snapped:        resolution.Snapped,
+		ElementID:      elementID,
+		Element:        element,
+		Mode:           "background_virtual",
+		Message:        fmt.Sprintf("Resolved background virtual pointer to %s at (%d, %d).", elementID, resolution.ScreenPoint.X, resolution.ScreenPoint.Y),
+	}, nil
+}
+
+func (s *Service) PerformBackgroundWindowAction(req BackgroundMouseActionRequest) (BackgroundMouseActionResult, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	snapshotID := strings.TrimSpace(req.SnapshotID)
+	if snapshotID == "" {
+		return BackgroundMouseActionResult{}, fmt.Errorf("snapshot_id is required")
+	}
+
+	kind, err := parseBackgroundMouseActionKind(req.Action)
+	if err != nil {
+		return BackgroundMouseActionResult{}, normalizeBackgroundMouseError(err)
+	}
+
+	s.mu.Lock()
+	snapshot, ok := s.accessibilitySnapshots[snapshotID]
+	s.mu.Unlock()
+	if !ok {
+		return BackgroundMouseActionResult{}, fmt.Errorf("unknown snapshot_id %q", snapshotID)
+	}
+
+	actionReq := backgroundmouse.SnapshotActionRequest{Kind: kind}
+	var requestedPoint *Point
+	if req.Point != nil {
+		point := shared.Point{X: req.Point.X, Y: req.Point.Y}
+		actionReq.Point = &point
+		requestedPoint = &Point{X: req.Point.X, Y: req.Point.Y}
+	} else if elementID := strings.TrimSpace(req.ElementID); elementID != "" {
+		element, ok := snapshot.Elements[elementID]
+		if !ok {
+			return BackgroundMouseActionResult{}, fmt.Errorf("unresolved_background_action: unknown element_id %q for snapshot %q", elementID, snapshotID)
+		}
+		ref, ok := windowAccessibilityElementRef(element)
+		if !ok {
+			return BackgroundMouseActionResult{}, fmt.Errorf("unresolved_background_action: element %q does not expose an AX ref", elementID)
+		}
+		actionReq.Ref = &ref
+	} else {
+		return BackgroundMouseActionResult{}, fmt.Errorf("unresolved_background_action: point or element_id is required")
+	}
+
+	result, err := s.nut.BackgroundMouse.PerformInSnapshot(ctx, snapshot.BackgroundSnapshot, actionReq)
+	if err != nil {
+		return BackgroundMouseActionResult{}, normalizeBackgroundMouseError(err)
+	}
+
+	screenPoint := pointFromSharedPoint(result.ScreenPoint)
+	if screenPoint == (Point{}) {
+		if elementID := strings.TrimSpace(req.ElementID); elementID != "" {
+			element := snapshot.Elements[elementID]
+			if virtualPoint, ok := windowAccessibilityVirtualPoint(element); ok {
+				screenPoint = virtualPoint
+			}
+		}
+	}
+
+	s.mu.Lock()
+	snapshot, ok = s.accessibilitySnapshots[snapshotID]
+	if !ok {
+		s.mu.Unlock()
+		return BackgroundMouseActionResult{}, fmt.Errorf("unknown snapshot_id %q", snapshotID)
+	}
+	elementID, ok := snapshot.ElementIDsByRef[agentAXRefKey(result.MatchedRef)]
+	if !ok {
+		s.mu.Unlock()
+		return BackgroundMouseActionResult{}, fmt.Errorf("unresolved_background_action: resolved background ref %+v is not cached in snapshot %q", result.MatchedRef, snapshotID)
+	}
+	element := snapshot.Elements[elementID]
+	previous := copyPointPointer(snapshot.LastVirtualPoint)
+	if screenPoint != (Point{}) {
+		next := screenPoint
+		snapshot.LastVirtualPoint = &next
+	}
+	s.accessibilitySnapshots[snapshotID] = snapshot
+	s.mu.Unlock()
+
+	if screenPoint != (Point{}) {
+		emitBackgroundVirtualAction(previous, screenPoint, kind)
+	}
+
+	message := fmt.Sprintf("Executed %s on %s via background_virtual.", req.Action, elementID)
+	if screenPoint != (Point{}) {
+		message = fmt.Sprintf("Executed %s on %s at (%d, %d) via background_virtual.", req.Action, elementID, screenPoint.X, screenPoint.Y)
+	}
+
+	return BackgroundMouseActionResult{
+		SnapshotID:     snapshotID,
+		Action:         string(kind),
+		RequestedPoint: requestedPoint,
+		ScreenPoint:    screenPoint,
+		Snapped:        result.Snapped,
+		ElementID:      elementID,
+		Element:        element,
+		Mode:           "background_virtual",
+		Result: ActionResult{
+			OK:      true,
+			Message: message,
+		},
+		Message: message,
 	}, nil
 }
 
@@ -192,35 +311,41 @@ func (s *Service) clickWindowAccessibilityElement(windowHandle uint64, element W
 	})
 }
 
-func flattenWindowAccessibilityMatches(matches []common.AXElementMatch) ([]WindowAccessibilityElement, windowAccessibilitySnapshotCache) {
-	elements := make([]WindowAccessibilityElement, 0, len(matches))
+func flattenWindowAccessibilitySnapshot(snapshot backgroundmouse.WindowSnapshot) ([]WindowAccessibilityElement, windowAccessibilitySnapshotCache) {
+	elements := make([]WindowAccessibilityElement, 0, len(snapshot.Elements))
 	cache := windowAccessibilitySnapshotCache{
-		Elements: make(map[string]WindowAccessibilityElement, len(matches)),
+		Elements:           make(map[string]WindowAccessibilityElement, len(snapshot.Elements)),
+		ElementIDsByRef:    make(map[string]string, len(snapshot.Elements)),
+		BackgroundSnapshot: snapshot,
 	}
-	for _, match := range matches {
+	for _, match := range snapshot.Elements {
 		id := fmt.Sprintf("el-%03d", len(elements)+1)
-		element := windowAccessibilityElementFromAXMatch(id, match)
+		element := windowAccessibilityElementFromBackgroundElement(id, match)
 		elements = append(elements, element)
 		cache.Elements[id] = element
+		cache.ElementIDsByRef[agentAXRefKey(match.Ref)] = id
 	}
 	return elements, cache
 }
 
-func windowAccessibilityElementFromAXMatch(id string, match common.AXElementMatch) WindowAccessibilityElement {
+func windowAccessibilityElementFromBackgroundElement(id string, match backgroundmouse.SnapshotElement) WindowAccessibilityElement {
 	result := WindowAccessibilityElement{
-		ID:           id,
-		Path:         windowAccessibilityPath(match.Ref.Path),
-		Depth:        match.Depth,
-		Role:         strings.TrimSpace(match.Metadata.Role),
-		Subrole:      strings.TrimSpace(match.Metadata.Subrole),
-		Title:        strings.TrimSpace(match.Metadata.Title),
-		Value:        strings.TrimSpace(match.Metadata.Value),
-		Enabled:      match.Metadata.Enabled,
-		Focused:      match.Metadata.Focused,
-		AXActions:    append([]string(nil), match.Metadata.Actions...),
-		AXRef:        axElementRefPointer(match.Ref),
-		EnabledKnown: true,
-		FocusedKnown: true,
+		ID:                    id,
+		Path:                  windowAccessibilityPath(match.Ref.Path),
+		Depth:                 match.Depth,
+		Role:                  strings.TrimSpace(match.Metadata.Role),
+		Subrole:               strings.TrimSpace(match.Metadata.Subrole),
+		Title:                 strings.TrimSpace(match.Metadata.Title),
+		Value:                 strings.TrimSpace(match.Metadata.Value),
+		Enabled:               match.Metadata.Enabled,
+		Focused:               match.Metadata.Focused,
+		AXActions:             append([]string(nil), match.Metadata.Actions...),
+		ActionPoint:           pointFromSharedPoint(match.ActionPoint),
+		ActionPointKnown:      match.ActionPointKnown,
+		AXRef:                 axElementRefPointer(match.Ref),
+		BackgroundSafeActions: backgroundMouseActionNames(match.BackgroundSafeActions),
+		EnabledKnown:          true,
+		FocusedKnown:          true,
 	}
 	if match.Metadata.FrameKnown {
 		region := regionFromRect(match.Metadata.Frame)
@@ -268,6 +393,9 @@ func windowAccessibilityHasAXAction(actions []string, target common.AXAction) bo
 }
 
 func requireWindowAccessibilityScreenPoint(element WindowAccessibilityElement) (Point, error) {
+	if element.ActionPointKnown {
+		return element.ActionPoint, nil
+	}
 	if element.ScreenRegion == nil {
 		return Point{}, fmt.Errorf("element %q does not expose a known screen region", element.ID)
 	}
@@ -331,6 +459,12 @@ func formatWindowAccessibilitySnapshotMarkdown(snapshotID string, window WindowS
 		if element.ScreenRegion != nil {
 			builder.WriteString(fmt.Sprintf("%s  - screen region `(%d, %d)` `%dx%d`\n", indent, element.ScreenRegion.Left, element.ScreenRegion.Top, element.ScreenRegion.Width, element.ScreenRegion.Height))
 		}
+		if element.ActionPointKnown {
+			builder.WriteString(fmt.Sprintf("%s  - action point `(%d, %d)`\n", indent, element.ActionPoint.X, element.ActionPoint.Y))
+		}
+		if len(element.BackgroundSafeActions) > 0 {
+			builder.WriteString(fmt.Sprintf("%s  - background-safe actions: %s\n", indent, backtickJoin(element.BackgroundSafeActions)))
+		}
 		if len(element.AvailableActions) > 0 {
 			builder.WriteString(fmt.Sprintf("%s  - available actions: %s\n", indent, backtickJoin(element.AvailableActions)))
 		}
@@ -370,4 +504,140 @@ func uniqueStrings(values []string) []string {
 		result = append(result, trimmed)
 	}
 	return result
+}
+
+func (s *Service) resolveBackgroundWindowPoint(snapshotID string, requested shared.Point) (backgroundmouse.PointResolution, string, WindowAccessibilityElement, error) {
+	s.mu.Lock()
+	snapshot, ok := s.accessibilitySnapshots[snapshotID]
+	s.mu.Unlock()
+	if !ok {
+		return backgroundmouse.PointResolution{}, "", WindowAccessibilityElement{}, fmt.Errorf("unknown snapshot_id %q", snapshotID)
+	}
+
+	resolution, err := s.nut.BackgroundMouse.ResolveInSnapshot(snapshot.BackgroundSnapshot, requested)
+	if err != nil {
+		return backgroundmouse.PointResolution{}, "", WindowAccessibilityElement{}, normalizeBackgroundMouseError(err)
+	}
+
+	screenPoint := pointFromSharedPoint(resolution.ScreenPoint)
+
+	s.mu.Lock()
+	snapshot, ok = s.accessibilitySnapshots[snapshotID]
+	if !ok {
+		s.mu.Unlock()
+		return backgroundmouse.PointResolution{}, "", WindowAccessibilityElement{}, fmt.Errorf("unknown snapshot_id %q", snapshotID)
+	}
+	elementID, ok := snapshot.ElementIDsByRef[agentAXRefKey(resolution.MatchedRef)]
+	if !ok {
+		s.mu.Unlock()
+		return backgroundmouse.PointResolution{}, "", WindowAccessibilityElement{}, fmt.Errorf("unresolved_background_action: resolved background ref %+v is not cached in snapshot %q", resolution.MatchedRef, snapshotID)
+	}
+	element := snapshot.Elements[elementID]
+	previous := copyPointPointer(snapshot.LastVirtualPoint)
+	next := screenPoint
+	snapshot.LastVirtualPoint = &next
+	s.accessibilitySnapshots[snapshotID] = snapshot
+	s.mu.Unlock()
+
+	emitBackgroundVirtualMove(previous, screenPoint)
+	return resolution, elementID, element, nil
+}
+
+func parseBackgroundMouseActionKind(value string) (backgroundmouse.ActionKind, error) {
+	switch kind := backgroundmouse.ActionKind(strings.ToLower(strings.TrimSpace(value))); kind {
+	case backgroundmouse.ActionClick, backgroundmouse.ActionDoubleClick, backgroundmouse.ActionFocus, backgroundmouse.ActionRightClick, backgroundmouse.ActionShowMenu:
+		return kind, nil
+	default:
+		return "", fmt.Errorf("%w: unsupported background mouse action %q", backgroundmouse.ErrActionUnsupported, value)
+	}
+}
+
+func normalizeBackgroundMouseError(err error) error {
+	switch {
+	case errors.Is(err, backgroundmouse.ErrUnresolved):
+		return fmt.Errorf("unresolved_background_action: %w", err)
+	case errors.Is(err, backgroundmouse.ErrActionUnsupported), errors.Is(err, backgroundmouse.ErrUnsupportedPlatform):
+		return fmt.Errorf("unsupported_background_action: %w", err)
+	default:
+		return err
+	}
+}
+
+func backgroundMouseActionNames(actions []backgroundmouse.ActionKind) []string {
+	result := make([]string, 0, len(actions))
+	for _, action := range actions {
+		result = append(result, string(action))
+	}
+	return result
+}
+
+func windowAccessibilityElementRef(element WindowAccessibilityElement) (common.AXElementRef, bool) {
+	if element.AXRef == nil {
+		return common.AXElementRef{}, false
+	}
+	ref, err := parseAXElementRef(*element.AXRef)
+	if err != nil {
+		return common.AXElementRef{}, false
+	}
+	return ref, true
+}
+
+func windowAccessibilityVirtualPoint(element WindowAccessibilityElement) (Point, bool) {
+	if element.ActionPointKnown {
+		return element.ActionPoint, true
+	}
+	if element.ScreenRegion != nil {
+		return centerPoint(*element.ScreenRegion), true
+	}
+	return Point{}, false
+}
+
+func emitBackgroundVirtualMove(previous *Point, next Point) {
+	start := next
+	if previous != nil {
+		start = *previous
+	}
+	target := common.Point{X: next.X, Y: next.Y}
+	_ = showAgentCursorOverlay(libnutcore.AgentCursorEvent{
+		Kind:     libnutcore.AgentCursorEventMove,
+		Position: common.Point{X: start.X, Y: start.Y},
+		Target:   &target,
+		Duration: agentCursorMotionDuration(start, next, false),
+	})
+}
+
+func emitBackgroundVirtualAction(previous *Point, next Point, kind backgroundmouse.ActionKind) {
+	if previous == nil || *previous != next {
+		emitBackgroundVirtualMove(previous, next)
+	}
+
+	event := libnutcore.AgentCursorEvent{
+		Position: common.Point{X: next.X, Y: next.Y},
+	}
+	switch kind {
+	case backgroundmouse.ActionFocus:
+		return
+	case backgroundmouse.ActionDoubleClick:
+		event.Kind = libnutcore.AgentCursorEventDoubleClick
+		event.Button = common.MouseButtonLeft
+	case backgroundmouse.ActionRightClick, backgroundmouse.ActionShowMenu:
+		event.Kind = libnutcore.AgentCursorEventClick
+		event.Button = common.MouseButtonRight
+	default:
+		event.Kind = libnutcore.AgentCursorEventClick
+		event.Button = common.MouseButtonLeft
+	}
+	_ = showAgentCursorOverlay(event)
+}
+
+func copyPointPointer(point *Point) *Point {
+	if point == nil {
+		return nil
+	}
+	copy := *point
+	return &copy
+}
+
+func pointFromSharedPoint(point shared.Point) Point {
+	return Point{X: point.X, Y: point.Y}
 }
