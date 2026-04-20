@@ -66,6 +66,7 @@ type Service struct {
 	artifactDir            string
 	emitEvent              func(string, any)
 	agentCoordinateStates  map[string]agentCoordinateState
+	agentComputerStates    map[string]agentComputerState
 	agentPointerStates     map[string]agentPointerState
 	accessibilitySnapshots map[string]windowAccessibilitySnapshotCache
 	agentLuaSessions       map[string]*agentLuaSession
@@ -515,6 +516,7 @@ func NewService() *Service {
 		clipboard:              clipboard.NewSystemProvider(),
 		artifactDir:            filepath.Join(".", ".artifacts"),
 		agentCoordinateStates:  make(map[string]agentCoordinateState),
+		agentComputerStates:    make(map[string]agentComputerState),
 		agentPointerStates:     make(map[string]agentPointerState),
 		accessibilitySnapshots: make(map[string]windowAccessibilitySnapshotCache),
 		agentLuaSessions:       make(map[string]*agentLuaSession),

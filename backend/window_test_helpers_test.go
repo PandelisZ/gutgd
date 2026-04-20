@@ -97,6 +97,7 @@ type fakeBackendAccessibilityProvider struct {
 	lastFocusAXRef                 common.AXElementRef
 	lastPerformAXRef               common.AXElementRef
 	lastPerformAXAction            common.AXAction
+	performAXElementActionHook     func(common.AXElementRef, common.AXAction)
 	raiseFocusedWindowCalls        int
 	permissionErr                  error
 	focusedWindowErr               error
@@ -285,6 +286,9 @@ func (f *fakeBackendAccessibilityProvider) FocusAXElement(_ context.Context, ref
 func (f *fakeBackendAccessibilityProvider) PerformAXElementAction(_ context.Context, ref common.AXElementRef, action common.AXAction) error {
 	f.lastPerformAXRef = ref
 	f.lastPerformAXAction = action
+	if f.performAXElementActionHook != nil {
+		f.performAXElementActionHook(ref, action)
+	}
 	return f.performAXElementActionErr
 }
 
@@ -355,6 +359,7 @@ func newTestServiceWithWindowsAccessibilityAndElements(accessibility provider.Ac
 		nut:                    gut.New(registry),
 		artifactDir:            ".",
 		agentCoordinateStates:  make(map[string]agentCoordinateState),
+		agentComputerStates:    make(map[string]agentComputerState),
 		agentPointerStates:     make(map[string]agentPointerState),
 		accessibilitySnapshots: make(map[string]windowAccessibilitySnapshotCache),
 		agentLuaSessions:       make(map[string]*agentLuaSession),

@@ -102,6 +102,23 @@ func TestCombineInstructionsIncludesSystemPrompt(t *testing.T) {
 	}
 }
 
+func TestCombineAgentInstructionsAddsStrictBackgroundOnlyGuidance(t *testing.T) {
+	value := combineAgentInstructions(AgentSettings{
+		SystemPrompt:         "Prefer concise answers.",
+		StrictBackgroundOnly: true,
+	})
+	for _, needle := range []string{
+		"Prefer concise answers.",
+		"Strict background-only mouse mode is enabled.",
+		"Raw pointer tools are intentionally unavailable.",
+		"unsupported_background_action",
+	} {
+		if !strings.Contains(value, needle) {
+			t.Fatalf("expected combined agent instructions to contain %q, got %q", needle, value)
+		}
+	}
+}
+
 func TestTranscriptItemsFromResponseOutputIncludesReasoningAndMessages(t *testing.T) {
 	reasoning := mustResponseOutputItem(t, `{
 		"type":"reasoning",
@@ -597,6 +614,64 @@ func TestAgentRawInputToolsFocusSelectedWindowInWindowSpace(t *testing.T) {
 	}
 	if len(fakeMouse.clicks) != 1 || fakeMouse.clicks[0] != shared.ButtonLeft {
 		t.Fatalf("unexpected mouse clicks: %+v", fakeMouse.clicks)
+	}
+}
+
+func TestStrictBackgroundOnlyModeHidesRawPointerTools(t *testing.T) {
+	service := NewService()
+	tools := service.agentToolsForGOOSWithStateAndSettings("darwin", newAgentCoordinateState(), nil, AgentSettings{
+		StrictBackgroundOnly: true,
+	})
+
+	for _, hidden := range []string{
+		"get_mouse_position",
+		"set_mouse_position",
+		"move_mouse_line",
+		"click_mouse",
+		"mouse_down",
+		"mouse_up",
+		"double_click_mouse",
+		"scroll_mouse",
+		"drag_mouse",
+	} {
+		if hasAgentTool(tools, hidden) {
+			t.Fatalf("expected %s to be hidden in strict background-only mode", hidden)
+		}
+	}
+
+	tool, ok := findAgentTool(tools, "act_on_window_accessibility_element")
+	if !ok {
+		t.Fatal("expected act_on_window_accessibility_element to remain exposed")
+	}
+	if !strings.Contains(tool.Description, "fails closed") {
+		t.Fatalf("expected strict act_on_window_accessibility_element description, got %q", tool.Description)
+	}
+}
+
+func TestStrictBackgroundOnlyActOnWindowAccessibilityElementUsesBackgroundVirtualPath(t *testing.T) {
+	service, _, snapshot, mouse := newBackgroundVirtualActionFixture(t)
+	tools := service.agentToolsForGOOSWithStateAndSettings("darwin", newAgentCoordinateState(), nil, AgentSettings{
+		StrictBackgroundOnly: true,
+	})
+	tool, ok := findAgentTool(tools, "act_on_window_accessibility_element")
+	if !ok {
+		t.Fatal("expected act_on_window_accessibility_element to be exposed")
+	}
+
+	raw, err := tool.Run(fmt.Sprintf(`{"snapshot_id":%q,"element_id":%q,"action":"click"}`, snapshot.SnapshotID, snapshot.Elements[1].ID))
+	if err != nil {
+		t.Fatalf("act_on_window_accessibility_element returned error: %v", err)
+	}
+
+	result, ok := raw.(WindowAccessibilityElementActionResult)
+	if !ok {
+		t.Fatalf("expected WindowAccessibilityElementActionResult, got %T", raw)
+	}
+	if result.Mode != "background_virtual" || result.ScreenPoint != (Point{X: 1016, Y: 712}) {
+		t.Fatalf("expected strict background-virtual action result, got %+v", result)
+	}
+	if len(mouse.setPositions) != 0 || len(mouse.clicks) != 0 || len(mouse.doubleClicks) != 0 {
+		t.Fatalf("expected strict mode to avoid real mouse input, got set=%+v click=%+v double=%+v", mouse.setPositions, mouse.clicks, mouse.doubleClicks)
 	}
 }
 

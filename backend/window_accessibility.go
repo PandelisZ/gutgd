@@ -2,7 +2,6 @@ package backend
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -10,7 +9,6 @@ import (
 	"github.com/PandelisZ/gut"
 	"github.com/PandelisZ/gut/backgroundmouse"
 	"github.com/PandelisZ/gut/native/common"
-	"github.com/PandelisZ/gut/native/libnutcore"
 	"github.com/PandelisZ/gut/shared"
 )
 
@@ -47,55 +45,7 @@ func (s *Service) GetWindowAccessibilitySnapshot(req WindowAccessibilitySnapshot
 }
 
 func (s *Service) ActOnWindowAccessibilityElement(req WindowAccessibilityElementActionRequest) (WindowAccessibilityElementActionResult, error) {
-	snapshotID := strings.TrimSpace(req.SnapshotID)
-	elementID := strings.TrimSpace(req.ElementID)
-	action := strings.ToLower(strings.TrimSpace(req.Action))
-	if snapshotID == "" {
-		return WindowAccessibilityElementActionResult{}, fmt.Errorf("snapshot_id is required")
-	}
-	if elementID == "" {
-		return WindowAccessibilityElementActionResult{}, fmt.Errorf("element_id is required")
-	}
-	if action == "" {
-		return WindowAccessibilityElementActionResult{}, fmt.Errorf("action is required")
-	}
-
-	s.mu.Lock()
-	snapshot, ok := s.accessibilitySnapshots[snapshotID]
-	if !ok {
-		s.mu.Unlock()
-		return WindowAccessibilityElementActionResult{}, fmt.Errorf("unknown snapshot_id %q", snapshotID)
-	}
-	element, ok := snapshot.Elements[elementID]
-	s.mu.Unlock()
-	if !ok {
-		return WindowAccessibilityElementActionResult{}, fmt.Errorf("unknown element_id %q for snapshot %q", elementID, snapshotID)
-	}
-
-	screenPoint := Point{}
-	if point, err := requireWindowAccessibilityScreenPoint(element); err == nil {
-		screenPoint = point
-	}
-
-	result, mode, err := s.performWindowAccessibilityAction(snapshot.Window, element, action)
-	if err != nil {
-		return WindowAccessibilityElementActionResult{}, err
-	}
-
-	message := fmt.Sprintf("Executed %s on %s via %s.", action, elementID, mode)
-	if element.ScreenRegion != nil {
-		message = fmt.Sprintf("Executed %s on %s at (%d, %d) via %s.", action, elementID, screenPoint.X, screenPoint.Y, mode)
-	}
-
-	return WindowAccessibilityElementActionResult{
-		SnapshotID:  snapshotID,
-		ElementID:   elementID,
-		Action:      action,
-		ScreenPoint: screenPoint,
-		Mode:        mode,
-		Result:      result,
-		Message:     message,
-	}, nil
+	return s.actOnWindowAccessibilityElement(req, false)
 }
 
 func (s *Service) ResolveBackgroundWindowPoint(req BackgroundMouseResolveRequest) (BackgroundMouseResolveResult, error) {
@@ -163,7 +113,7 @@ func (s *Service) PerformBackgroundWindowAction(req BackgroundMouseActionRequest
 		return BackgroundMouseActionResult{}, fmt.Errorf("unresolved_background_action: point or element_id is required")
 	}
 
-	result, err := s.nut.BackgroundMouse.PerformInSnapshot(ctx, snapshot.BackgroundSnapshot, actionReq)
+	result, err := s.performStrictBackgroundWindowAction(ctx, snapshot.BackgroundSnapshot, actionReq)
 	if err != nil {
 		return BackgroundMouseActionResult{}, normalizeBackgroundMouseError(err)
 	}
@@ -543,34 +493,6 @@ func (s *Service) resolveBackgroundWindowPoint(snapshotID string, requested shar
 	return resolution, elementID, element, nil
 }
 
-func parseBackgroundMouseActionKind(value string) (backgroundmouse.ActionKind, error) {
-	switch kind := backgroundmouse.ActionKind(strings.ToLower(strings.TrimSpace(value))); kind {
-	case backgroundmouse.ActionClick, backgroundmouse.ActionDoubleClick, backgroundmouse.ActionFocus, backgroundmouse.ActionRightClick, backgroundmouse.ActionShowMenu:
-		return kind, nil
-	default:
-		return "", fmt.Errorf("%w: unsupported background mouse action %q", backgroundmouse.ErrActionUnsupported, value)
-	}
-}
-
-func normalizeBackgroundMouseError(err error) error {
-	switch {
-	case errors.Is(err, backgroundmouse.ErrUnresolved):
-		return fmt.Errorf("unresolved_background_action: %w", err)
-	case errors.Is(err, backgroundmouse.ErrActionUnsupported), errors.Is(err, backgroundmouse.ErrUnsupportedPlatform):
-		return fmt.Errorf("unsupported_background_action: %w", err)
-	default:
-		return err
-	}
-}
-
-func backgroundMouseActionNames(actions []backgroundmouse.ActionKind) []string {
-	result := make([]string, 0, len(actions))
-	for _, action := range actions {
-		result = append(result, string(action))
-	}
-	return result
-}
-
 func windowAccessibilityElementRef(element WindowAccessibilityElement) (common.AXElementRef, bool) {
 	if element.AXRef == nil {
 		return common.AXElementRef{}, false
@@ -580,64 +502,4 @@ func windowAccessibilityElementRef(element WindowAccessibilityElement) (common.A
 		return common.AXElementRef{}, false
 	}
 	return ref, true
-}
-
-func windowAccessibilityVirtualPoint(element WindowAccessibilityElement) (Point, bool) {
-	if element.ActionPointKnown {
-		return element.ActionPoint, true
-	}
-	if element.ScreenRegion != nil {
-		return centerPoint(*element.ScreenRegion), true
-	}
-	return Point{}, false
-}
-
-func emitBackgroundVirtualMove(previous *Point, next Point) {
-	start := next
-	if previous != nil {
-		start = *previous
-	}
-	target := common.Point{X: next.X, Y: next.Y}
-	_ = showAgentCursorOverlay(libnutcore.AgentCursorEvent{
-		Kind:     libnutcore.AgentCursorEventMove,
-		Position: common.Point{X: start.X, Y: start.Y},
-		Target:   &target,
-		Duration: agentCursorMotionDuration(start, next, false),
-	})
-}
-
-func emitBackgroundVirtualAction(previous *Point, next Point, kind backgroundmouse.ActionKind) {
-	if previous == nil || *previous != next {
-		emitBackgroundVirtualMove(previous, next)
-	}
-
-	event := libnutcore.AgentCursorEvent{
-		Position: common.Point{X: next.X, Y: next.Y},
-	}
-	switch kind {
-	case backgroundmouse.ActionFocus:
-		return
-	case backgroundmouse.ActionDoubleClick:
-		event.Kind = libnutcore.AgentCursorEventDoubleClick
-		event.Button = common.MouseButtonLeft
-	case backgroundmouse.ActionRightClick, backgroundmouse.ActionShowMenu:
-		event.Kind = libnutcore.AgentCursorEventClick
-		event.Button = common.MouseButtonRight
-	default:
-		event.Kind = libnutcore.AgentCursorEventClick
-		event.Button = common.MouseButtonLeft
-	}
-	_ = showAgentCursorOverlay(event)
-}
-
-func copyPointPointer(point *Point) *Point {
-	if point == nil {
-		return nil
-	}
-	copy := *point
-	return &copy
-}
-
-func pointFromSharedPoint(point shared.Point) Point {
-	return Point{X: point.X, Y: point.Y}
 }

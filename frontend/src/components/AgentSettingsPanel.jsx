@@ -1,4 +1,4 @@
-import { Button, Field, Input, Textarea } from '@fluentui/react-components'
+import { Button, Checkbox, Field, Input, Textarea } from '@fluentui/react-components'
 
 import Panel from './Panel'
 
@@ -9,6 +9,7 @@ export default function AgentSettingsPanel({
   models,
   reasoningEffort,
   systemPrompt,
+  strictBackgroundOnly,
   apiKeySource,
   status,
   error,
@@ -19,6 +20,7 @@ export default function AgentSettingsPanel({
   onModelChange,
   onReasoningEffortChange,
   onSystemPromptChange,
+  onStrictBackgroundOnlyChange,
   onSave
 }) {
   return (
@@ -74,6 +76,11 @@ export default function AgentSettingsPanel({
           <Textarea value={systemPrompt} onChange={(_, data) => onSystemPromptChange(data.value)} />
         </Field>
       </div>
+      <Checkbox
+        checked={strictBackgroundOnly}
+        label="Strict background-only mouse mode"
+        onChange={(_, data) => onStrictBackgroundOnlyChange(Boolean(data.checked))}
+      />
       <div className="gutgd-agentFeedback">
         <div className="gutgd-agentMetaChips">
           <span className="gutgd-agentChip">
@@ -89,10 +96,19 @@ export default function AgentSettingsPanel({
             <span>{reasoningEffort}</span>
           </span>
           <span className="gutgd-agentChip">
+            <strong>Pointer mode</strong>
+            <span>{strictBackgroundOnly ? 'Strict background-only' : 'Standard'}</span>
+          </span>
+          <span className="gutgd-agentChip">
             <strong>State</strong>
             <span>{loadingSettings ? 'Loading' : 'Ready'}</span>
           </span>
         </div>
+        {strictBackgroundOnly ? (
+          <div className="gutgd-statusNote gutgd-agentNotice">
+            Raw pointer tools are disabled for the desktop agent. Cached element actions must stay on the strict background AX path and will fail instead of falling back to focused cursor input.
+          </div>
+        ) : null}
         {apiKeySource === 'environment' ? (
           <div className="gutgd-statusNote gutgd-agentNotice">
             Live agent runs are currently using <code>OPENAI_API_KEY</code> from the environment. The password field stays empty until you explicitly save a local key for this desktop profile.

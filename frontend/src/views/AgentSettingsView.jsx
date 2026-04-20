@@ -11,6 +11,7 @@ export default function AgentSettingsView() {
   const [models, setModels] = useState([])
   const [reasoningEffort, setReasoningEffort] = useState('medium')
   const [systemPrompt, setSystemPrompt] = useState('')
+  const [strictBackgroundOnly, setStrictBackgroundOnly] = useState(false)
   const [apiKeySource, setAPIKeySource] = useState('missing')
   const [status, setStatus] = useState('')
   const [loadingSettings, setLoadingSettings] = useState(true)
@@ -29,6 +30,7 @@ export default function AgentSettingsView() {
         setModel(settings.model || 'gpt-5.4')
         setReasoningEffort(settings.reasoning_effort || 'medium')
         setSystemPrompt(settings.system_prompt || '')
+        setStrictBackgroundOnly(Boolean(settings.strict_background_only))
         setAPIKeySource(settingsStatus.api_key_source || 'missing')
         const options = await api.listAgentModels()
         setModels(options || [])
@@ -52,7 +54,8 @@ export default function AgentSettingsView() {
         base_url: baseURL,
         model,
         reasoning_effort: reasoningEffort,
-        system_prompt: systemPrompt
+        system_prompt: systemPrompt,
+        strict_background_only: strictBackgroundOnly
       })
       const settingsStatus = await api.getAgentSettingsStatus()
       setAPIKey(saved.api_key || '')
@@ -60,6 +63,7 @@ export default function AgentSettingsView() {
       setModel(saved.model || 'gpt-5.4')
       setReasoningEffort(saved.reasoning_effort || 'medium')
       setSystemPrompt(saved.system_prompt || '')
+      setStrictBackgroundOnly(Boolean(saved.strict_background_only))
       setAPIKeySource(settingsStatus.api_key_source || 'missing')
       setStatus('Settings saved.')
     } catch (nextError) {
@@ -84,6 +88,7 @@ export default function AgentSettingsView() {
           models={models}
           reasoningEffort={reasoningEffort}
           systemPrompt={systemPrompt}
+          strictBackgroundOnly={strictBackgroundOnly}
           apiKeySource={apiKeySource}
           status={status}
           error={error}
@@ -94,6 +99,7 @@ export default function AgentSettingsView() {
           onModelChange={setModel}
           onReasoningEffortChange={setReasoningEffort}
           onSystemPromptChange={setSystemPrompt}
+          onStrictBackgroundOnlyChange={setStrictBackgroundOnly}
           onSave={saveSettings}
         />
       </div>

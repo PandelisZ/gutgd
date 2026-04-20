@@ -76,11 +76,12 @@ Scaffold discipline:
 - Treat the trajectory_plan as the short-horizon sequence for the next few grounded actions, and update your behavior based on new evidence after each step.`
 
 type AgentSettings struct {
-	APIKey          string `json:"api_key"`
-	BaseURL         string `json:"base_url"`
-	Model           string `json:"model"`
-	ReasoningEffort string `json:"reasoning_effort"`
-	SystemPrompt    string `json:"system_prompt"`
+	APIKey               string `json:"api_key"`
+	BaseURL              string `json:"base_url"`
+	Model                string `json:"model"`
+	ReasoningEffort      string `json:"reasoning_effort"`
+	SystemPrompt         string `json:"system_prompt"`
+	StrictBackgroundOnly bool   `json:"strict_background_only"`
 }
 
 type AgentSettingsStatus struct {
@@ -277,11 +278,12 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 
 	client := newAgentOpenAIClient(settings)
 	coordinateState := s.loadAgentCoordinateState(req.PreviousResponseID)
+	computerState := s.loadAgentComputerState(req.PreviousResponseID)
 	pointerState := s.loadAgentPointerState(req.PreviousResponseID)
 	luaSession := s.loadAgentLuaSession(req.PreviousResponseID)
 	priorTranscript := s.loadAgentTranscriptState(req.PreviousResponseID)
-	tools := s.agentToolsWithState(coordinateState, luaSession, pointerState)
-	instructions := combineInstructions(settings.SystemPrompt)
+	tools := s.agentToolsWithSettings(coordinateState, luaSession, pointerState, settings)
+	instructions := combineAgentInstructions(settings)
 	userRequest := latestUserRequestText(req.Messages)
 	inputItems := make([]responses.ResponseInputItemUnionParam, 0, len(req.Messages))
 	for _, message := range req.Messages {
@@ -296,7 +298,8 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 		return AgentChatResponse{}, fmt.Errorf("at least one non-empty user or assistant message is required")
 	}
 	if strings.TrimSpace(req.PreviousResponseID) == "" {
-		if desktopCaptureItems, ok := s.initialDesktopCaptureInputItems(); ok {
+		if desktopCaptureItems, desktopCapture, ok := s.initialDesktopCaptureInputItems(); ok {
+			computerState.LastCapture = desktopCapture
 			inputItems = append(desktopCaptureItems, inputItems...)
 		}
 	}
@@ -320,9 +323,10 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 		Input: responses.ResponseNewParamsInputUnion{
 			OfInputItemList: prependAgentScaffold(agentLoopScaffold(userRequest, priorTranscript, coordinateState), inputItems...),
 		},
-		ParallelToolCalls: openai.Bool(true),
+		ParallelToolCalls: openai.Bool(false),
 		Include:           []responses.ResponseIncludable{responses.ResponseIncludableReasoningEncryptedContent},
 		Reasoning:         reasoningParam(settings.ReasoningEffort),
+		Truncation:        responses.ResponseNewParamsTruncationAuto,
 		Tools:             s.agentToolParams(tools),
 	}
 	if previousResponseID := strings.TrimSpace(req.PreviousResponseID); previousResponseID != "" {
@@ -346,7 +350,7 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 	lastToolStepSignature := ""
 	for step := 0; ; step++ {
 		outputs := make([]responses.ResponseInputItemUnionParam, 0)
-		functionCalls := make([]responses.ResponseFunctionToolCall, 0)
+		pendingActions := make([]agentPendingAction, 0)
 
 		for _, item := range response.Output {
 			nextItems := transcriptItemsFromResponseOutput(item)
@@ -361,14 +365,21 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 				})
 			}
 
-			if item.Type != "function_call" {
-				continue
+			switch item.Type {
+			case "function_call":
+				pendingActions = append(pendingActions, agentPendingAction{
+					Kind:         "function_call",
+					FunctionCall: item.AsFunctionCall(),
+				})
+			case "computer_call":
+				pendingActions = append(pendingActions, agentPendingAction{
+					Kind:         "computer_call",
+					ComputerCall: item.AsComputerCall(),
+				})
 			}
-
-			functionCalls = append(functionCalls, item.AsFunctionCall())
 		}
 
-		if len(functionCalls) == 0 {
+		if len(pendingActions) == 0 {
 			finalMessage := strings.TrimSpace(response.OutputText())
 			if finalMessage == "" {
 				finalMessage = latestAssistantMessage(transcriptItems)
@@ -395,6 +406,7 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 				ResponseID: response.ID,
 			})
 			s.saveAgentCoordinateState(response.ID, coordinateState)
+			s.saveAgentComputerState(response.ID, computerState)
 			s.saveAgentPointerState(response.ID, pointerState)
 			s.saveAgentLuaSession(response.ID, luaSession)
 			s.saveAgentTranscriptState(response.ID, transcriptItems)
@@ -410,9 +422,18 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 			}, nil
 		}
 
-		signature := agentToolStepSignature(functionCalls)
+		signature := agentActionStepSignature(pendingActions)
 		if signature != "" && signature == lastToolStepSignature {
-			message := repeatedToolCallMessage(functionCalls)
+			names := make([]string, 0, len(pendingActions))
+			for _, action := range pendingActions {
+				switch action.Kind {
+				case "function_call":
+					names = append(names, action.FunctionCall.Name)
+				case "computer_call":
+					names = append(names, agentComputerToolName)
+				}
+			}
+			message := fmt.Sprintf("The agent stopped because it started repeating the same tool call pattern without making progress: %s.", strings.Join(names, ", "))
 			transcriptItems = append(transcriptItems, AgentTranscriptItem{
 				Kind:    "message",
 				Role:    "assistant",
@@ -436,22 +457,53 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 		}
 		lastToolStepSignature = signature
 
-		for _, call := range functionCalls {
-			output, event := runAgentTool(tools, call.Name, call.Arguments, call.CallID)
+		for _, action := range pendingActions {
+			var (
+				callItem   AgentTranscriptItem
+				outputItem AgentTranscriptItem
+				event      AgentToolEvent
+				output     string
+				nextOutput responses.ResponseInputItemUnionParam
+				runErr     error
+			)
+
+			switch action.Kind {
+			case "function_call":
+				output, event = runAgentTool(tools, action.FunctionCall.Name, action.FunctionCall.Arguments, action.FunctionCall.CallID)
+				nextOutput = agentFunctionCallOutput(action.FunctionCall.CallID, output)
+				callItem = AgentTranscriptItem{
+					Kind:      "tool_call",
+					Name:      action.FunctionCall.Name,
+					CallID:    action.FunctionCall.CallID,
+					Arguments: action.FunctionCall.Arguments,
+				}
+				outputItem = AgentTranscriptItem{
+					Kind:   "tool_output",
+					Name:   action.FunctionCall.Name,
+					CallID: action.FunctionCall.CallID,
+					Output: output,
+					Error:  event.Error,
+				}
+			case "computer_call":
+				nextOutput, event, output, runErr = s.runAgentComputerCall(action.ComputerCall, computerState)
+				callItem = AgentTranscriptItem{
+					Kind:      "tool_call",
+					Name:      agentComputerToolName,
+					CallID:    action.ComputerCall.CallID,
+					Arguments: event.Arguments,
+				}
+				outputItem = AgentTranscriptItem{
+					Kind:   "tool_output",
+					Name:   agentComputerToolName,
+					CallID: action.ComputerCall.CallID,
+					Output: output,
+					Error:  event.Error,
+				}
+			default:
+				continue
+			}
+
 			toolEvents = append(toolEvents, event)
-			callItem := AgentTranscriptItem{
-				Kind:      "tool_call",
-				Name:      call.Name,
-				CallID:    call.CallID,
-				Arguments: call.Arguments,
-			}
-			outputItem := AgentTranscriptItem{
-				Kind:   "tool_output",
-				Name:   call.Name,
-				CallID: call.CallID,
-				Output: output,
-				Error:  event.Error,
-			}
 			transcriptItems = append(transcriptItems, callItem, outputItem)
 			callItemCopy := callItem
 			outputItemCopy := outputItem
@@ -474,7 +526,30 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 				ToolEvent: &eventCopy,
 				Status:    "Tool event received.",
 			})
-			outputs = append(outputs, agentFunctionCallOutput(call.CallID, output))
+			if runErr != nil {
+				message := fmt.Sprintf("The agent stopped because the built-in computer action loop failed: %s.", runErr.Error())
+				transcriptItems = append(transcriptItems, AgentTranscriptItem{
+					Kind:    "message",
+					Role:    "assistant",
+					Content: message,
+				})
+				s.emitAgentProgress(runID, AgentProgressEvent{
+					RunID:  runID,
+					Kind:   "complete",
+					Status: message,
+				})
+				return AgentChatResponse{
+					Message: AgentChatMessage{
+						Role:    "assistant",
+						Content: message,
+					},
+					ToolEvents: toolEvents,
+					Items:      transcriptItems,
+					ResponseID: "",
+					Usage:      totalUsage,
+				}, nil
+			}
+			outputs = append(outputs, nextOutput)
 		}
 
 		if step+1 >= maxAgentSteps {
@@ -493,9 +568,10 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 				Input: responses.ResponseNewParamsInputUnion{
 					OfInputItemList: continueInputItems(agentLoopScaffold(userRequest, transcriptItems, coordinateState), outputs),
 				},
-				ParallelToolCalls: openai.Bool(true),
+				ParallelToolCalls: openai.Bool(false),
 				Include:           []responses.ResponseIncludable{responses.ResponseIncludableReasoningEncryptedContent},
 				Reasoning:         reasoningParam(settings.ReasoningEffort),
+				Truncation:        responses.ResponseNewParamsTruncationAuto,
 				Tools:             s.agentToolParams(tools),
 			})
 			if err != nil {
@@ -533,9 +609,10 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 			Input: responses.ResponseNewParamsInputUnion{
 				OfInputItemList: prependAgentScaffold(agentLoopScaffold(userRequest, transcriptItems, coordinateState), outputs...),
 			},
-			ParallelToolCalls: openai.Bool(true),
+			ParallelToolCalls: openai.Bool(false),
 			Include:           []responses.ResponseIncludable{responses.ResponseIncludableReasoningEncryptedContent},
 			Reasoning:         reasoningParam(settings.ReasoningEffort),
+			Truncation:        responses.ResponseNewParamsTruncationAuto,
 			Tools:             s.agentToolParams(tools),
 		}
 
@@ -553,7 +630,7 @@ func (s *Service) ChatWithAgent(req AgentChatRequest) (AgentChatResponse, error)
 }
 
 func (s *Service) agentToolParams(tools []agentTool) []responses.ToolUnionParam {
-	result := make([]responses.ToolUnionParam, 0, len(tools))
+	result := make([]responses.ToolUnionParam, 0, len(tools)+1)
 	for _, tool := range tools {
 		result = append(result, responses.ToolUnionParam{
 			OfFunction: &responses.FunctionToolParam{
@@ -564,6 +641,7 @@ func (s *Service) agentToolParams(tools []agentTool) []responses.ToolUnionParam 
 			},
 		})
 	}
+	result = append(result, agentComputerToolParam())
 	return result
 }
 
@@ -586,16 +664,25 @@ func (s *Service) agentToolsForGOOS(goos string) []agentTool {
 }
 
 func (s *Service) agentToolsWithState(state *agentCoordinateState, luaSession *agentLuaSession, pointerState *agentPointerState) []agentTool {
+	return s.agentToolsWithSettings(state, luaSession, pointerState, AgentSettings{})
+}
+
+func (s *Service) agentToolsWithSettings(state *agentCoordinateState, luaSession *agentLuaSession, pointerState *agentPointerState, settings AgentSettings) []agentTool {
 	if state == nil {
 		state = newAgentCoordinateState()
 	}
-	return decorateAgentPointerTools(s, s.agentToolsForGOOSWithState(runtime.GOOS, state, luaSession), state, pointerState)
+	return decorateAgentPointerTools(s, s.agentToolsForGOOSWithStateAndSettings(runtime.GOOS, state, luaSession, settings), state, pointerState)
 }
 
 func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinateState, luaSession *agentLuaSession) []agentTool {
+	return s.agentToolsForGOOSWithStateAndSettings(goos, state, luaSession, AgentSettings{})
+}
+
+func (s *Service) agentToolsForGOOSWithStateAndSettings(goos string, state *agentCoordinateState, luaSession *agentLuaSession, settings AgentSettings) []agentTool {
 	if state == nil {
 		state = newAgentCoordinateState()
 	}
+	strictBackgroundOnly := settings.StrictBackgroundOnly
 	captureScreenDescription := "Capture the full screen to a file under the artifacts directory."
 	captureActiveWindowDescription := "Capture the current active window to a file under the artifacts directory."
 	captureWindowDescription := "Capture a specific window by handle to a file under the artifacts directory."
@@ -707,7 +794,7 @@ func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinate
 		},
 		{
 			Name:        "search_ax_elements",
-			Description: "Search AX elements within an explicit scope using bounded criteria. Prefer an inspect-then-act flow: search with scope plus a small set of filters, inspect the returned matches, refs, metadata, depth, and action_point/action_point_known fields, then choose one ref for focus_ax_element or perform_ax_element_action. On macOS, prefer scope window_handle with an explicit handle when you need to inspect a background window without focusing it. Use exact AX action tokens in the optional action filter, and preserve permission_blocked versus unsupported or unavailable in backend results.",
+			Description: "Search AX elements within an explicit scope using bounded criteria. Prefer an inspect-then-act flow: search with scope plus a small set of filters, inspect the returned simplified markdown match inventory and the exact ref payloads, then choose one ref for focus_ax_element or perform_ax_element_action. On macOS, prefer scope window_handle with an explicit handle when you need to inspect a background window without focusing it. Use exact AX action tokens in the optional action filter, and preserve permission_blocked versus unsupported or unavailable in backend results.",
 			Parameters: objectSchema(map[string]any{
 				"scope":                enumSchema("AX search scope to inspect.", string(common.AXSearchScopeFocusedWindow), string(common.AXSearchScopeFrontmostApplication), string(common.AXSearchScopeWindowHandle)),
 				"window_handle":        integerSchema("Required when scope is window_handle. Window handle to inspect without focusing it first."),
@@ -732,7 +819,7 @@ func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinate
 		},
 		{
 			Name:        "focus_ax_element",
-			Description: "Move AX focus to one element chosen from search_ax_elements. Inspect the returned matches first, select one explicit ref, then call this tool with that ref. Refs returned from window_handle searches stay targeted to that specific window. Preserve permission_blocked versus unsupported or unavailable in backend results rather than hiding those distinctions.",
+			Description: "Move AX focus to one element chosen from search_ax_elements. Inspect the returned markdown match inventory and matches first, select one explicit ref, then call this tool with that ref. Refs returned from window_handle searches stay targeted to that specific window. Preserve permission_blocked versus unsupported or unavailable in backend results rather than hiding those distinctions.",
 			Parameters: objectSchema(map[string]any{
 				"ref": axElementRefSchema("AX element ref returned by search_ax_elements."),
 			}, "ref"),
@@ -746,7 +833,7 @@ func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinate
 		},
 		{
 			Name:        "perform_ax_element_action",
-			Description: "Perform one explicit AX action on one element chosen from search_ax_elements. Inspect the returned matches first, select one explicit ref, then invoke one exact AX action token for that ref. Refs returned from window_handle searches stay targeted to that specific window. Preserve permission_blocked versus unsupported or unavailable in backend results rather than hiding those distinctions.",
+			Description: "Perform one explicit AX action on one element chosen from search_ax_elements. Inspect the returned markdown match inventory first, select one explicit ref, then invoke one exact AX action token for that ref. Refs returned from window_handle searches stay targeted to that specific window. Preserve permission_blocked versus unsupported or unavailable in backend results rather than hiding those distinctions.",
 			Parameters: objectSchema(map[string]any{
 				"ref":    axElementRefSchema("AX element ref returned by search_ax_elements."),
 				"action": enumSchema("Exact AX action token to perform on the chosen ref.", string(common.AXPress), string(common.AXRaise), string(common.AXShowMenu), string(common.AXConfirm), string(common.AXPick)),
@@ -761,7 +848,7 @@ func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinate
 		},
 		{
 			Name:        "get_focused_window_metadata",
-			Description: "Read AX-backed metadata for the currently focused window. Prefer this before screenshot-guessing when the active app context matters. If the backend reports permission_blocked, tell the user Accessibility permission is required instead of pretending the feature is unsupported.",
+			Description: "Read AX-backed metadata for the currently focused window. This returns a compact markdown summary instead of a raw JSON blob. Prefer this before screenshot-guessing when the active app context matters. If the backend reports permission_blocked, tell the user Accessibility permission is required instead of pretending the feature is unsupported.",
 			Parameters:  emptyObjectSchema(),
 			Run: func(raw string) (any, error) {
 				return s.GetFocusedWindowMetadata()
@@ -769,7 +856,7 @@ func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinate
 		},
 		{
 			Name:        "get_window_accessibility_snapshot",
-			Description: "Enumerate one window's accessible UI tree in a single tool call and return a structured markdown inventory with stable element IDs, AX refs, screen regions, and suggested actions. Use handle 0 for the active window. On macOS this can inspect a background window by handle without focusing it first. Prefer this when you need the full picture of a window instead of probing one point at a time.",
+			Description: "Enumerate one window's accessible UI tree in a single tool call and return a simplified markdown inventory with stable element IDs, AX refs, screen regions, and suggested actions. Use handle 0 for the active window. On macOS this can inspect a background window by handle without focusing it first. Prefer this when you need the full picture of a window instead of probing one point at a time.",
 			Parameters: objectSchema(map[string]any{
 				"handle": integerSchema("Window handle to inspect. Use 0 for the active window."),
 			}, "handle"),
@@ -783,7 +870,7 @@ func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinate
 		},
 		{
 			Name:        "act_on_window_accessibility_element",
-			Description: "Act on one element returned by get_window_accessibility_snapshot using its stable element ID. This prefers cached AX refs for background-safe actions and falls back to focused raw input only when needed, so the model does not have to guess coordinates again.",
+			Description: windowAccessibilityActionToolDescription(strictBackgroundOnly),
 			Parameters: objectSchema(map[string]any{
 				"snapshot_id": stringSchema("Snapshot ID returned by get_window_accessibility_snapshot."),
 				"element_id":  stringSchema("Element ID from the snapshot inventory, such as el-007."),
@@ -794,12 +881,12 @@ func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinate
 				if err := decodeToolArgs(raw, &payload); err != nil {
 					return nil, err
 				}
-				return s.ActOnWindowAccessibilityElement(payload)
+				return s.actOnWindowAccessibilityElement(payload, strictBackgroundOnly)
 			},
 		},
 		{
 			Name:        "get_focused_element_metadata",
-			Description: "Read AX-backed metadata for the currently focused UI element. Prefer this for grounding text fields, buttons, and current focus before relying only on pixels. Pay attention to permission_blocked versus unsupported or unavailable in backend results.",
+			Description: "Read AX-backed metadata for the currently focused UI element. This returns a compact markdown summary instead of a raw JSON blob. Prefer this for grounding text fields, buttons, and current focus before relying only on pixels. Pay attention to permission_blocked versus unsupported or unavailable in backend results.",
 			Parameters:  emptyObjectSchema(),
 			Run: func(raw string) (any, error) {
 				return s.GetFocusedElementMetadata()
@@ -807,7 +894,7 @@ func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinate
 		},
 		{
 			Name:        "get_element_at_point_metadata",
-			Description: "Read AX-backed metadata for the UI element at x/y in the current coordinate space. Use this before blind clicking or screenshot-guessing when you need to confirm what control is under a point. In window space, x/y are relative to the selected window's top-left corner. Pay attention to permission_blocked versus unsupported or unavailable in backend results.",
+			Description: "Read AX-backed metadata for the UI element at x/y in the current coordinate space. This returns a compact markdown summary with the translated screen point instead of a raw JSON blob. Use this before blind clicking or screenshot-guessing when you need to confirm what control is under a point. In window space, x/y are relative to the selected window's top-left corner. Pay attention to permission_blocked versus unsupported or unavailable in backend results.",
 			Parameters: objectSchema(map[string]any{
 				"x": integerSchema("Target x-coordinate."),
 				"y": integerSchema("Target y-coordinate."),
@@ -1527,7 +1614,7 @@ func (s *Service) agentToolsForGOOSWithState(goos string, state *agentCoordinate
 		)
 	}
 
-	return tools
+	return filterAgentToolsForSettings(tools, settings)
 }
 
 func runAgentTool(tools []agentTool, name string, raw string, callID string) (string, AgentToolEvent) {
@@ -1568,6 +1655,7 @@ func agentDeveloperPromptForGOOS(goos string) string {
 Use the provided tools whenever the user asks you to inspect or control the desktop environment.
 Prefer the smallest number of tool calls needed to satisfy the request.
 Summarize what you did, include notable tool results, and be explicit when the native backend reports an unsupported capability.
+When the built-in computer tool is available and the task depends on seeing and operating the live desktop, prefer that computer-use loop as the default visual action path. Treat each returned computer screenshot as the current source of truth, let the harness execute the model's computer_call actions, and reason from the next screenshot rather than narrating hypothetical actions.
 Do not treat GUT_ENABLE_LIVE_TESTS or the diagnostics field live_enabled as a blocker for normal gutgd actions. Those fields belong to the separate gut live-test harness. In gutgd, use the actual tool call result and the feature_status/capability availability to decide whether an action is possible.
 Before screenshot-guessing or blind clicking inside an app, prefer get_permission_readiness on macOS to see whether AX-backed reads are available. If accessibility metadata tools are available, prefer get_window_accessibility_snapshot for the active or target window when you need the full UI picture in one step. It returns markdown plus stable element IDs, AX refs, screen regions, and suggested actions for the whole accessible window tree. After that, prefer act_on_window_accessibility_element with the returned snapshot_id and element_id instead of guessing coordinates again. Use get_focused_window_metadata, get_focused_element_metadata, and get_element_at_point_metadata as narrower fallbacks when you only need a small piece of that picture. When you need higher-level AX search and stable refs, use search_ax_elements with bounded criteria and an explicit scope. On macOS, prefer scope window_handle with an explicit handle when you need to inspect or act on a background window without focusing it. Inspect the returned matches/ref/metadata, then use focus_ax_element or perform_ax_element_action on one chosen ref. If the backend reports permission_blocked, tell the user Accessibility permission is required instead of pretending the feature is unsupported. If it reports unsupported or unavailable, fall back to window discovery and whole-screen or whole-window screenshot tools.
 At the start of a brand-new conversation, the harness will usually attach an initial full-desktop screenshot automatically. Treat that initial full-desktop capture as the starting visual context before choosing the first grounded step.
@@ -1597,11 +1685,12 @@ Do not invent tool results.`
 	return strings.TrimSpace(prompt)
 }
 
-func (s *Service) initialDesktopCaptureInputItems() ([]responses.ResponseInputItemUnionParam, bool) {
-	capture, err := s.CaptureScreen(CaptureRequest{})
+func (s *Service) initialDesktopCaptureInputItems() ([]responses.ResponseInputItemUnionParam, *CaptureResult, bool) {
+	capture, err := s.captureComputerScreen()
 	if err != nil {
-		return nil, false
+		return nil, nil, false
 	}
+	capture = normalizeCaptureResultMetadata(capture)
 
 	text := strings.TrimSpace(fmt.Sprintf(
 		`Initial full-desktop capture for the start of this conversation.
@@ -1612,7 +1701,7 @@ Use this as the initial visual context before choosing the first grounded intera
 	))
 	dataURL, err := imageDataURL(capture.Path)
 	if err != nil {
-		return nil, false
+		return nil, nil, false
 	}
 
 	return []responses.ResponseInputItemUnionParam{
@@ -1632,7 +1721,7 @@ Use this as the initial visual context before choosing the first grounded intera
 			},
 			responses.EasyInputMessageRoleUser,
 		),
-	}, true
+	}, &capture, true
 }
 
 func latestAssistantMessage(items []AgentTranscriptItem) string {
@@ -1913,6 +2002,7 @@ func analyzeScreenshot(ctx context.Context, client openai.Client, model string, 
 	response, err := client.Responses.New(ctx, responses.ResponseNewParams{
 		Model:       openai.ChatModel(model),
 		ServiceTier: responses.ResponseNewParamsServiceTierPriority,
+		Truncation:  responses.ResponseNewParamsTruncationAuto,
 		Input: responses.ResponseNewParamsInputUnion{
 			OfInputItemList: []responses.ResponseInputItemUnionParam{
 				responses.ResponseInputItemParamOfMessage(
@@ -3051,7 +3141,7 @@ func simplifyPoints(points []luaPoint, minDistance float64) []map[string]any {
 
 func hasCaptureEvidence(items []AgentTranscriptItem) bool {
 	for _, item := range items {
-		if item.Kind == "tool_output" && (item.Name == "capture_screen" || item.Name == "capture_active_window" || item.Name == "capture_window" || item.Name == "capture_region" || item.Name == "load_image_for_context" || item.Name == "analyze_screenshot") {
+		if item.Kind == "tool_output" && (item.Name == "capture_screen" || item.Name == "capture_active_window" || item.Name == "capture_window" || item.Name == "capture_region" || item.Name == "load_image_for_context" || item.Name == "analyze_screenshot" || item.Name == agentComputerToolName) {
 			return true
 		}
 	}
@@ -3075,7 +3165,7 @@ func hasMeaningfulAction(items []AgentTranscriptItem) bool {
 	for _, item := range items {
 		if item.Kind == "tool_output" {
 			switch item.Name {
-			case "set_mouse_position", "move_mouse_line", "drag_mouse", "click_mouse", "double_click_mouse", "type_text", "type_text_block", "press_special_key", "tap_keys":
+			case "set_mouse_position", "move_mouse_line", "drag_mouse", "click_mouse", "double_click_mouse", "type_text", "type_text_block", "press_special_key", "tap_keys", agentComputerToolName:
 				return true
 			}
 		}
@@ -3291,6 +3381,9 @@ func decodeToolArgs(raw string, target any) error {
 }
 
 func marshalToolPayload(value any) string {
+	if formatted, ok := formatAccessibilityToolPayload(value); ok {
+		return formatted
+	}
 	data, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
 		return fmt.Sprintf("{\"error\":%q}", err.Error())
